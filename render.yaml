@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pastoral-missionaria
+    env: node
+    plan: free
+    region: ohio
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: JWT_SECRET
+        generateValue: true
