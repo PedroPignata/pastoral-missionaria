@@ -36,3 +36,4 @@ echo "3. Escolha o repositório 'pastoral-missionaria'"
 echo "4. Clique em 'Apply'!"
 echo ""
 echo "O Render vai criar o serviço na nuvem e gerar o link definitivo!"
+
