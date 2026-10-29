@@ -14,6 +14,12 @@ import {
   Calendar,
   History,
   Settings,
+  Sparkles,
+  Send,
+  GraduationCap,
+  Shirt,
+  ShieldCheck,
+  Globe,
 } from 'lucide-react';
 import { NavItemKey } from './Sidebar';
 import { useAuth } from '../../context/AuthContext';
@@ -40,11 +46,21 @@ export const MobileNav: React.FC<MobileNavProps> = ({
     onClose();
   };
 
-  const allItems = [
-    { key: 'visao_geral', label: 'Visão Geral', icon: LayoutDashboard },
-    { key: 'pedidos', label: 'Pedidos', icon: ShoppingBag },
-    { key: 'membros', label: 'Membros', icon: Users },
-    { key: 'financeiro', label: 'Financeiro', icon: DollarSign },
+  const ecosystemItems = [
+    { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
+    { key: 'calendario_2027', label: 'Calendário 2027 (26 datas)', icon: Calendar },
+    { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
+    { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },
+    { key: 'minha_camiseta', label: 'Minha Camiseta & Pix', icon: Shirt },
+    { key: 'governanca', label: 'Pessoas, Papéis & Sucessão', icon: ShieldCheck },
+    { key: 'portal_publico', label: 'Portal Institucional', icon: Globe },
+  ];
+
+  const tshirtsItems = [
+    { key: 'visao_geral', label: 'Visão Geral (Camisetas)', icon: LayoutDashboard },
+    { key: 'pedidos', label: 'Pedidos (Camisetas)', icon: ShoppingBag },
+    { key: 'membros', label: 'Compradores / Membros', icon: Users },
+    { key: 'financeiro', label: 'Financeiro (Camisetas)', icon: DollarSign },
     { key: 'producao', label: 'Produção e Entregas', icon: Truck },
     { key: 'relatorios', label: 'Relatórios', icon: FileText },
     {
@@ -53,15 +69,14 @@ export const MobileNav: React.FC<MobileNavProps> = ({
       icon: FileSpreadsheet,
       badge: pendingSyncCount > 0 ? `${pendingSyncCount}` : undefined,
     },
-    { key: 'comunicacao', label: 'WhatsApp', icon: MessageCircle },
+    { key: 'comunicacao', label: 'WhatsApp (Camisetas)', icon: MessageCircle },
     { key: 'campanhas', label: 'Campanhas', icon: Calendar },
-    { key: 'historico', label: 'Histórico', icon: History },
+    { key: 'historico', label: 'Histórico & Auditoria', icon: History },
     { key: 'configuracoes', label: 'Configurações', icon: Settings },
   ];
 
   return (
     <>
-      {/* Slide-over Drawer for Full Menu */}
       {isOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
@@ -70,7 +85,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           />
           <div className="fixed inset-y-0 left-0 w-4/5 max-w-xs bg-pastoral-profundo text-white p-5 shadow-2xl flex flex-col justify-between overflow-y-auto">
             <div>
-              {/* Header */}
               <div className="flex items-center justify-between pb-4 border-b border-pastoral-dourado/20">
                 <div className="flex items-center gap-2.5">
                   <div className="w-10 h-10 rounded-xl bg-pastoral-dourado flex items-center justify-center text-pastoral-profundo">
@@ -89,16 +103,44 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                 </button>
               </div>
 
-              {/* Navigation Items */}
-              <div className="py-4 space-y-1">
-                {allItems.map((item) => {
+              <div className="py-3 space-y-1">
+                <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-pastoral-dourado/80">
+                  Vida Missionária
+                </p>
+                {ecosystemItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = currentView === item.key;
                   return (
                     <button
                       key={item.key}
                       onClick={() => handleSelect(item.key as NavItemKey)}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                        isActive
+                          ? 'bg-pastoral-dourado text-pastoral-profundo font-bold shadow-gold'
+                          : 'text-zinc-300 hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-pastoral-profundo' : 'text-pastoral-dourado'}`} />
+                        <span>{item.label}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="py-2 border-t border-pastoral-dourado/20 space-y-1">
+                <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-pastoral-dourado/80">
+                  Gestão de Camisetas
+                </p>
+                {tshirtsItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentView === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      onClick={() => handleSelect(item.key as NavItemKey)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                         isActive
                           ? 'bg-pastoral-dourado text-pastoral-profundo font-bold shadow-gold'
                           : 'text-zinc-300 hover:bg-white/5 hover:text-white'
@@ -119,7 +161,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({
               </div>
             </div>
 
-            {/* User Profile & Logout */}
             <div className="pt-4 border-t border-pastoral-dourado/20 flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-white">{user?.name || 'Coordenação'}</p>
@@ -142,48 +183,48 @@ export const MobileNav: React.FC<MobileNavProps> = ({
       {/* Bottom Sticky Action Bar for Mobile Devices */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-pastoral-profundo border-t border-pastoral-dourado/30 px-2 py-1.5 flex items-center justify-around shadow-2xl backdrop-blur-md">
         <button
-          onClick={() => onSelectView('visao_geral')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium transition-all ${
-            currentView === 'visao_geral' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
+          onClick={() => onSelectView('painel_missionario')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-medium transition-all ${
+            currentView === 'painel_missionario' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
           }`}
         >
-          <LayoutDashboard className="w-5 h-5 mb-0.5" />
-          Início
+          <Sparkles className="w-5 h-5 mb-0.5" />
+          Painel
+        </button>
+
+        <button
+          onClick={() => onSelectView('calendario_2027')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-medium transition-all ${
+            currentView === 'calendario_2027' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
+          }`}
+        >
+          <Calendar className="w-5 h-5 mb-0.5" />
+          Agenda
+        </button>
+
+        <button
+          onClick={() => onSelectView('formacao_laboratorios')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-medium transition-all ${
+            currentView === 'formacao_laboratorios' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
+          }`}
+        >
+          <GraduationCap className="w-5 h-5 mb-0.5" />
+          Labs
         </button>
 
         <button
           onClick={() => onSelectView('pedidos')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium transition-all ${
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-medium transition-all ${
             currentView === 'pedidos' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
           }`}
         >
           <ShoppingBag className="w-5 h-5 mb-0.5" />
-          Pedidos
-        </button>
-
-        <button
-          onClick={() => onSelectView('financeiro')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium transition-all ${
-            currentView === 'financeiro' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
-          }`}
-        >
-          <DollarSign className="w-5 h-5 mb-0.5" />
-          Financeiro
-        </button>
-
-        <button
-          onClick={() => onSelectView('producao')}
-          className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium transition-all ${
-            currentView === 'producao' ? 'text-pastoral-dourado font-bold' : 'text-zinc-400'
-          }`}
-        >
-          <Truck className="w-5 h-5 mb-0.5" />
-          Entregas
+          Camisetas
         </button>
 
         <button
           onClick={onClose}
-          className="flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-medium text-zinc-400 hover:text-white"
+          className="flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-medium text-zinc-400 hover:text-white"
         >
           <Menu className="w-5 h-5 mb-0.5" />
           Menu
@@ -192,4 +233,3 @@ export const MobileNav: React.FC<MobileNavProps> = ({
     </>
   );
 };
-

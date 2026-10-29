@@ -357,5 +357,151 @@ export const api = {
     const res = await fetch(`${API_BASE}/settings/audit`, { headers: getAuthHeader() });
     return handleResponse<any[]>(res);
   },
+
+  // --- PASTORAL ECOSYSTEM 2.0 PLATFORM API ---
+  async getPublicInfo() {
+    const res = await fetch(`${API_BASE}/platform/public-info`);
+    return handleResponse<any>(res);
+  },
+
+  async getPlatformOverview() {
+    const res = await fetch(`${API_BASE}/platform/overview`, { headers: getAuthHeader() });
+    return handleResponse<any>(res);
+  },
+
+  async getCalendarEvents(params: { category?: string; month?: string; status?: string } = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v) query.append(k, v);
+    });
+    const res = await fetch(`${API_BASE}/platform/calendar?${query.toString()}`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async createCalendarEvent(data: any) {
+    const res = await fetch(`${API_BASE}/platform/calendar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async reimportCalendar2027() {
+    const res = await fetch(`${API_BASE}/platform/calendar/reimport-2027`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getLabsData() {
+    const res = await fetch(`${API_BASE}/platform/labs`, { headers: getAuthHeader() });
+    return handleResponse<{ themes: any[]; labs: any[]; evaluations: any[] }>(res);
+  },
+
+  async drawLabThemes(data: { title: string; lab_date: string; duration_minutes: number; speakers: string[]; notes?: string }) {
+    const res = await fetch(`${API_BASE}/platform/labs/draw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async submitLabEvaluation(data: any) {
+    const res = await fetch(`${API_BASE}/platform/labs/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getDispatches() {
+    const res = await fetch(`${API_BASE}/platform/dispatches`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async createDispatch(data: any) {
+    const res = await fetch(`${API_BASE}/platform/dispatches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async updateDispatchStatus(id: string, status: string, coordinator_feedback?: string) {
+    const res = await fetch(`${API_BASE}/platform/dispatches/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ status, coordinator_feedback }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getTemplates() {
+    const res = await fetch(`${API_BASE}/platform/templates`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async getAnnouncements() {
+    const res = await fetch(`${API_BASE}/platform/announcements`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async createAnnouncement(data: { title: string; content: string; category?: string; pinned?: boolean }) {
+    const res = await fetch(`${API_BASE}/platform/announcements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getGovernanceData() {
+    const res = await fetch(`${API_BASE}/platform/governance`, { headers: getAuthHeader() });
+    return handleResponse<{
+      pastoralMembers: any[];
+      capabilities: any[];
+      successionHistory: any[];
+    }>(res);
+  },
+
+  async updatePastoralMemberGovernance(id: string, data: any) {
+    const res = await fetch(`${API_BASE}/platform/governance/members/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async assignCapability(data: { pastoral_member_id: string; role_label: string; module: string; actions: string[] }) {
+    const res = await fetch(`${API_BASE}/platform/governance/capabilities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async executeSuccessionAction(data: { action: 'propose' | 'confirm' | 'step_down'; coordinator_name?: string; role_title?: string; target_id?: string; notes?: string }) {
+    const res = await fetch(`${API_BASE}/platform/governance/succession`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async createBackup() {
+    const res = await fetch(`${API_BASE}/platform/backup`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
 };
 

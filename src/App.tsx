@@ -5,7 +5,16 @@ import { Sidebar, NavItemKey } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { MobileNav } from './components/layout/MobileNav';
 
-// Views
+// Ecosystem 2.0 Views
+import { PainelMissionarioView } from './views/PainelMissionarioView';
+import { Calendario2027View } from './views/Calendario2027View';
+import { MissoesEnviosView } from './views/MissoesEnviosView';
+import { FormacaoLaboratoriosView } from './views/FormacaoLaboratoriosView';
+import { MinhaCamisetaView } from './views/MinhaCamisetaView';
+import { GovernancaSucessaoView } from './views/GovernancaSucessaoView';
+import { PublicPortalView } from './views/PublicPortalView';
+
+// Original T-Shirt Module Views (100% Preserved)
 import { VisaoGeralView } from './views/VisaoGeralView';
 import { PedidosView } from './views/PedidosView';
 import { MembrosView } from './views/MembrosView';
@@ -32,7 +41,7 @@ import { Order, Member, Campaign, Payment, DashboardKPIs, GoogleSheetsConfig } f
 export const App: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
 
-  const [currentView, setCurrentView] = useState<NavItemKey>('visao_geral');
+  const [currentView, setCurrentView] = useState<NavItemKey>('painel_missionario');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Core Data State
@@ -180,6 +189,15 @@ export const App: React.FC = () => {
     return <LoginView />;
   }
 
+  if (currentView === 'portal_publico') {
+    return (
+      <PublicPortalView
+        onBackToLogin={() => setCurrentView('painel_missionario')}
+        isAuthenticated={true}
+      />
+    );
+  }
+
   return (
     <div className="flex h-screen bg-pastoral-creme text-pastoral-grafite overflow-hidden">
       {/* 1. Desktop Sidebar */}
@@ -204,6 +222,26 @@ export const App: React.FC = () => {
 
         {/* Scrollable View Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 lg:pb-8">
+          {currentView === 'painel_missionario' && (
+            <PainelMissionarioView
+              kpis={dashboardData?.kpis || null}
+              onNavigate={(view) => setCurrentView(view)}
+              onOpenPublicPortal={() => setCurrentView('portal_publico')}
+            />
+          )}
+
+          {currentView === 'calendario_2027' && <Calendario2027View />}
+
+          {currentView === 'missoes_envios' && <MissoesEnviosView />}
+
+          {currentView === 'formacao_laboratorios' && (
+            <FormacaoLaboratoriosView members={members} />
+          )}
+
+          {currentView === 'minha_camiseta' && <MinhaCamisetaView orders={orders} />}
+
+          {currentView === 'governanca' && <GovernancaSucessaoView />}
+
           {currentView === 'visao_geral' && (
             <VisaoGeralView
               kpis={dashboardData?.kpis || null}
@@ -345,4 +383,3 @@ export const App: React.FC = () => {
     </div>
   );
 };
-

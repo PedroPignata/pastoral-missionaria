@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 
 import { initDatabase } from './db/database.js';
 import { seedDatabase } from './db/seed.js';
+import { runMigrations } from './db/migrations.js';
 
 import { authRouter } from './routes/auth.js';
 import { membersRouter } from './routes/members.js';
@@ -18,15 +19,17 @@ import { reportsRouter } from './routes/reports.js';
 import { sheetsRouter } from './routes/sheets.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 import { settingsRouter } from './routes/settings.js';
+import { platformRouter } from './routes/platform.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Database & Idempotent Seed
+// Initialize Database, Idempotent Seed & Versioned Ecosystem Migrations
 initDatabase();
 seedDatabase();
+runMigrations();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,6 +51,7 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/sheets', sheetsRouter);
 app.use('/api/whatsapp', whatsappRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/platform', platformRouter);
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
