@@ -7,7 +7,7 @@ import { googleSheetsService } from '../services/googleSheetsService.js';
 export const paymentsRouter = Router();
 
 // GET /api/payments
-paymentsRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+paymentsRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { order_id, member_id, method, start_date, end_date } = req.query;
 
   let query = `

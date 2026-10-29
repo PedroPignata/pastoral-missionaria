@@ -232,18 +232,37 @@ platformRouter.get('/labs', authenticateToken, (_req: AuthenticatedRequest, res:
   return res.json({ themes, labs, evaluations });
 });
 
+// Fisher-Yates unbiased shuffle
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
-  const { title, lab_date, duration_minutes = 15, speakers, notes } = req.body;
+  const { title, lab_date, duration_minutes = 15, speakers, notes, draw_mode = 'order_and_theme' } = req.body;
 
   if (!Array.isArray(speakers) || speakers.length === 0) {
     return res.status(400).json({ error: 'Informe ao menos um missionário/palestrante para realizar o sorteio.' });
   }
 
   const themes = db.prepare('SELECT * FROM lab_themes WHERE active = 1 ORDER BY theme_number ASC').all() as any[];
-  const shuffledSpeakers = [...speakers].sort(() => Math.random() - 0.5);
-  const shuffledThemes = [...themes].sort(() => Math.random() - 0.5);
+  const shuffledSpeakers = shuffleArray(speakers);
+  const shuffledThemes = shuffleArray(themes);
 
   const drawResults = shuffledSpeakers.map((speakerName, idx) => {
+    if (draw_mode === 'order_only' || shuffledThemes.length === 0) {
+      return {
+        order: idx + 1,
+        speaker_name: speakerName,
+        theme_number: null,
+        theme_title: 'Tema Livre / A Definir',
+        duration_minutes: Number(duration_minutes) || 15,
+      };
+    }
     const theme = shuffledThemes[idx % shuffledThemes.length];
     return {
       order: idx + 1,
@@ -273,7 +292,64 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
   return res.status(201).json({
     id: labId,
     draw_results: drawResults,
-    message: 'Sorteio de temas e ordem de apresentação realizado e registrado com sucesso!',
+    message: draw_mode === 'order_only'
+      ? 'Sorteio da ordem de pregação realizado com sucesso!'
+      : 'Sorteio de temas e ordem de apresentação realizado com sucesso!',
+  });
+});
+
+// CRUD de Temas de Laboratório (Seção 28)
+platformRouter.post('/labs/themes', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { title, description } = req.body;
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'O título do tema é obrigatório.' });
+  }
+
+  const maxTheme = db.prepare('SELECT MAX(theme_number) as max_num FROM lab_themes').get() as any;
+  const nextNum = (maxTheme?.max_num || 0) + 1;
+  const themeId = 'thm_' + crypto.randomBytes(4).toString('hex');
+
+  db.prepare(`
+    INSERT INTO lab_themes (id, theme_number, title, description, active)
+    VALUES (?, ?, ?, ?, 1)
+  `).run(themeId, nextNum, title.trim(), description?.trim() || '');
+
+  return res.status(201).json({ message: 'Tema cadastrado com sucesso!', themeId });
+});
+
+platformRouter.put('/labs/themes/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { title, description, active } = req.body;
+
+  const existing = db.prepare('SELECT id FROM lab_themes WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Tema não encontrado.' });
+  }
+
+  db.prepare(`
+    UPDATE lab_themes
+    SET title = COALESCE(?, title),
+        description = COALESCE(?, description),
+        active = COALESCE(?, active)
+    WHERE id = ?
+  `).run(title?.trim() || null, description?.trim() || null, active !== undefined ? (active ? 1 : 0) : null, id);
+
+  return res.json({ message: 'Tema atualizado com sucesso!' });
+});
+
+platformRouter.patch('/labs/themes/:id/archive', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const theme = db.prepare('SELECT id, active FROM lab_themes WHERE id = ?').get(id) as any;
+  if (!theme) {
+    return res.status(404).json({ error: 'Tema não encontrado.' });
+  }
+
+  const newStatus = theme.active === 1 ? 0 : 1;
+  db.prepare('UPDATE lab_themes SET active = ? WHERE id = ?').run(newStatus, id);
+
+  return res.json({
+    message: newStatus === 1 ? 'Tema reativado com sucesso!' : 'Tema arquivado com sucesso!',
+    active: newStatus
   });
 });
 

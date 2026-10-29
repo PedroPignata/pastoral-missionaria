@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
 import { db } from '../db/database.js';
-import { authenticateToken, AuthenticatedRequest } from './auth.js';
+import { authenticateToken, requireRole, AuthenticatedRequest } from './auth.js';
 import { ExportService } from '../services/exportService.js';
 
 export const reportsRouter = Router();
 
 // GET /api/reports/supplier (Consolidated report for manufacturer)
-reportsRouter.get('/supplier', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+reportsRouter.get('/supplier', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { campaign_id, only_confirmed } = req.query;
 
   let query = `
@@ -80,7 +80,7 @@ reportsRouter.get('/supplier', authenticateToken, (req: AuthenticatedRequest, re
 });
 
 // GET /api/reports/export/excel
-reportsRouter.get('/export/excel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+reportsRouter.get('/export/excel', authenticateToken, requireRole(['admin', 'coordenador']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const campaignId = req.query.campaign_id as string | undefined;
     const buffer = await ExportService.generateExcelWorkbook(campaignId);
@@ -94,7 +94,7 @@ reportsRouter.get('/export/excel', authenticateToken, async (req: AuthenticatedR
 });
 
 // GET /api/reports/export/csv
-reportsRouter.get('/export/csv', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+reportsRouter.get('/export/csv', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   try {
     const campaignId = req.query.campaign_id as string | undefined;
     const csvContent = ExportService.generateCSV(campaignId);
@@ -108,7 +108,7 @@ reportsRouter.get('/export/csv', authenticateToken, (req: AuthenticatedRequest, 
 });
 
 // GET /api/reports/export/pdf
-reportsRouter.get('/export/pdf', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+reportsRouter.get('/export/pdf', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   try {
     const campaignId = req.query.campaign_id as string | undefined;
     const pdfBuffer = ExportService.generatePDF(campaignId);

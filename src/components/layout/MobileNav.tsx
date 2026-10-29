@@ -40,6 +40,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   pendingSyncCount = 0,
 }) => {
   const { user, logout } = useAuth();
+  const isCoord = user?.role === 'admin' || user?.role === 'coordenador';
 
   const handleSelect = (view: NavItemKey) => {
     onSelectView(view);
@@ -52,7 +53,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({
     { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
     { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },
     { key: 'minha_camiseta', label: 'Minha Camiseta & Pix', icon: Shirt },
-    { key: 'governanca', label: 'Pessoas, Papéis & Sucessão', icon: ShieldCheck },
+    ...(isCoord
+      ? [{ key: 'governanca', label: 'Pessoas, Papéis & Sucessão', icon: ShieldCheck }]
+      : []),
     { key: 'portal_publico', label: 'Portal Institucional', icon: Globe },
   ];
 
@@ -129,36 +132,39 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                 })}
               </div>
 
-              <div className="py-2 border-t border-pastoral-dourado/20 space-y-1">
-                <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-pastoral-dourado/80">
-                  Gestão de Camisetas
-                </p>
-                {tshirtsItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = currentView === item.key;
-                  return (
-                    <button
-                      key={item.key}
-                      onClick={() => handleSelect(item.key as NavItemKey)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-pastoral-dourado text-pastoral-profundo font-bold shadow-gold'
-                          : 'text-zinc-300 hover:bg-white/5 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-pastoral-profundo' : 'text-pastoral-dourado'}`} />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
-                          {item.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* T-Shirts Management (Visible only to Coordinators) */}
+              {isCoord && (
+                <div className="py-2 border-t border-pastoral-dourado/20 space-y-1">
+                  <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-pastoral-dourado/80">
+                    Gestão de Camisetas
+                  </p>
+                  {tshirtsItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = currentView === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handleSelect(item.key as NavItemKey)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                          isActive
+                            ? 'bg-pastoral-dourado text-pastoral-profundo font-bold shadow-gold'
+                            : 'text-zinc-300 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className={`w-4 h-4 ${isActive ? 'text-pastoral-profundo' : 'text-pastoral-dourado'}`} />
+                          <span>{item.label}</span>
+                        </div>
+                        {item.badge && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="pt-4 border-t border-pastoral-dourado/20 flex items-center justify-between">

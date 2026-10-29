@@ -5,8 +5,8 @@ import { Cross, Lock, Mail, ArrowRight, Globe } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('admin@pastoralmissionaria.com.br');
-  const [password, setPassword] = useState('pastoral@2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPublicPortal, setShowPublicPortal] = useState(false);
@@ -28,9 +28,8 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleQuickFill = (userEmail: string, userPass: string) => {
-    setEmail(userEmail);
-    setPassword(userPass);
+  const handleGoogleLoginPlaceholder = () => {
+    setError('O login com Google está em fase final de configuração com o OAuth da Pastoral. Por favor, utilize seu e-mail institucional abaixo enquanto a integração é concluída.');
   };
 
   return (
@@ -67,10 +66,45 @@ export const LoginView: React.FC = () => {
             </div>
           )}
 
+          {/* Primary Action: Google Login */}
+          <button
+            type="button"
+            onClick={handleGoogleLoginPlaceholder}
+            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-300 shadow-xs flex items-center justify-center gap-3 transition-all hover:border-pastoral-dourado active:scale-95"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+            <span>Entrar com Google</span>
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-zinc-200" />
+            <span className="flex-shrink mx-3 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+              ou com e-mail institucional
+            </span>
+            <div className="flex-grow border-t border-zinc-200" />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
-                E-mail Institucional
+                E-mail
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-zinc-400 absolute left-3 top-3" />
@@ -78,7 +112,7 @@ export const LoginView: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@pastoralmissionaria.com.br"
+                  placeholder="seu.email@exemplo.com"
                   className="w-full pl-9 pr-3 py-2 text-xs border border-zinc-300 rounded-xl focus:ring-2 focus:ring-pastoral-dourado focus:border-pastoral-dourado"
                   required
                 />
@@ -87,7 +121,7 @@ export const LoginView: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
-                Senha de Acesso
+                Senha
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-zinc-400 absolute left-3 top-3" />
@@ -107,7 +141,7 @@ export const LoginView: React.FC = () => {
               disabled={isLoading}
               className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-pastoral-dourado to-pastoral-dourado-claro hover:brightness-105 text-pastoral-profundo shadow-gold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
             >
-              <span>{isLoading ? 'Autenticando...' : 'Entrar no Ecossistema da Pastoral'}</span>
+              <span>{isLoading ? 'Autenticando...' : 'Acessar Sistema'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -119,38 +153,8 @@ export const LoginView: React.FC = () => {
             className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-pastoral-creme hover:bg-pastoral-creme-escuro text-pastoral-cafe border border-pastoral-dourado/40 flex items-center justify-center gap-2 transition-colors"
           >
             <Globe className="w-4 h-4 text-pastoral-dourado" />
-            <span>Conhecer a Pastoral, Padroeiro & Calendário 2027 (Público)</span>
+            <span>Conhecer a Pastoral & Calendário Oficial</span>
           </button>
-
-          {/* Quick-Fill buttons */}
-          <div className="pt-3 border-t border-zinc-100 text-center">
-            <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
-              Perfis de Acesso Rápido:
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('admin@pastoralmissionaria.com.br', 'pastoral@2026')}
-                className="py-1.5 px-2 rounded-lg text-[10px] font-semibold bg-pastoral-cafe/10 text-pastoral-cafe hover:bg-pastoral-cafe hover:text-white transition-colors"
-              >
-                Admin / Tech
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('coordenacao@pastoralmissionaria.com.br', 'coordenacao@2026')}
-                className="py-1.5 px-2 rounded-lg text-[10px] font-semibold bg-blue-50 text-blue-800 hover:bg-blue-600 hover:text-white transition-colors"
-              >
-                Coordenação
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('consulta@pastoralmissionaria.com.br', 'consulta@2026')}
-                className="py-1.5 px-2 rounded-lg text-[10px] font-semibold bg-zinc-100 text-zinc-700 hover:bg-zinc-600 hover:text-white transition-colors"
-              >
-                Missionário
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}

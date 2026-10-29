@@ -69,37 +69,49 @@ export const App: React.FC = () => {
   const [selectedOrderForWhatsApp, setSelectedOrderForWhatsApp] = useState<Order | null>(null);
   const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null);
 
-  // Load all system data
+  // Load system data based on user authorization
   const loadAllData = useCallback(async () => {
     if (!user) return;
     setIsLoadingData(true);
-    try {
-      const [
-        ordersData,
-        membersData,
-        campaignsData,
-        activeCamp,
-        paymentsData,
-        dashData,
-        sheetsStatus,
-      ] = await Promise.all([
-        api.getOrders(),
-        api.getMembers(),
-        api.getCampaigns(),
-        api.getActiveCampaign(),
-        api.getPayments(),
-        api.getDashboard(),
-        api.getSheetsStatus(),
-      ]);
+    const isCoord = user.role === 'admin' || user.role === 'coordenador';
 
-      setOrders(ordersData);
-      setMembers(membersData);
-      setCampaigns(campaignsData);
-      setActiveCampaign(activeCamp);
-      setPayments(paymentsData);
-      setDashboardData(dashData);
-      setSheetsConfig(sheetsStatus.config);
-      setPendingSyncCount(sheetsStatus.pendingJobsCount);
+    try {
+      if (isCoord) {
+        const [
+          ordersData,
+          membersData,
+          campaignsData,
+          activeCamp,
+          paymentsData,
+          dashData,
+          sheetsStatus,
+        ] = await Promise.all([
+          api.getOrders(),
+          api.getMembers(),
+          api.getCampaigns(),
+          api.getActiveCampaign(),
+          api.getPayments(),
+          api.getDashboard(),
+          api.getSheetsStatus(),
+        ]);
+
+        setOrders(ordersData);
+        setMembers(membersData);
+        setCampaigns(campaignsData);
+        setActiveCampaign(activeCamp);
+        setPayments(paymentsData);
+        setDashboardData(dashData);
+        setSheetsConfig(sheetsStatus.config);
+        setPendingSyncCount(sheetsStatus.pendingJobsCount);
+      } else {
+        // Members only load active campaigns and basic context
+        const [campaignsData, activeCamp] = await Promise.all([
+          api.getCampaigns(),
+          api.getActiveCampaign(),
+        ]);
+        setCampaigns(campaignsData);
+        setActiveCampaign(activeCamp);
+      }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
     } finally {

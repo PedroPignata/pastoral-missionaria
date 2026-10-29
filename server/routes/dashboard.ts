@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
 import { db } from '../db/database.js';
-import { authenticateToken, AuthenticatedRequest } from './auth.js';
+import { authenticateToken, requireRole, AuthenticatedRequest } from './auth.js';
 
 export const dashboardRouter = Router();
 
 // GET /api/dashboard
-dashboardRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+dashboardRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { campaign_id } = req.query;
 
   let baseWhere = "WHERE o.status != 'cancelado'";

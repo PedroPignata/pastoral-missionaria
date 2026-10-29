@@ -57,10 +57,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingSyncCount = 0,
 }) => {
   const { user, logout } = useAuth();
+  const isCoord = user?.role === 'admin' || user?.role === 'coordenador';
   const [activeGroup, setActiveGroup] = useState<NavGroupKey>('missionaria');
 
   // Automatically switch group tab when currentView changes programmatically
   useEffect(() => {
+    if (!isCoord) {
+      setActiveGroup('missionaria');
+      return;
+    }
     const camisetasViews: NavItemKey[] = [
       'visao_geral',
       'pedidos',
@@ -81,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } else {
       setActiveGroup('missionaria');
     }
-  }, [currentView]);
+  }, [currentView, isCoord]);
 
   const groups: Record<
     NavGroupKey,
@@ -154,50 +159,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Contextual Domain Switcher (Prevents Giant Sidebar) */}
-      <div className="px-3 pt-3">
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-black/30 border border-pastoral-dourado/20 text-[10px] font-bold">
-          <button
-            onClick={() => {
-              setActiveGroup('missionaria');
-              onSelectView('painel_missionario');
-            }}
-            className={`py-1.5 px-1 rounded-lg transition-all ${
-              activeGroup === 'missionaria'
-                ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Missionária
-          </button>
-          <button
-            onClick={() => {
-              setActiveGroup('camisetas');
-              onSelectView('visao_geral');
-            }}
-            className={`py-1.5 px-1 rounded-lg transition-all ${
-              activeGroup === 'camisetas'
-                ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Camisetas
-          </button>
-          <button
-            onClick={() => {
-              setActiveGroup('coordenacao');
-              onSelectView('governanca');
-            }}
-            className={`py-1.5 px-1 rounded-lg transition-all ${
-              activeGroup === 'coordenacao'
-                ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Governança
-          </button>
+      {/* Contextual Domain Switcher (Visible to Coordinators & Admin) */}
+      {isCoord && (
+        <div className="px-3 pt-3">
+          <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-black/30 border border-pastoral-dourado/20 text-[10px] font-bold">
+            <button
+              onClick={() => {
+                setActiveGroup('missionaria');
+                onSelectView('painel_missionario');
+              }}
+              className={`py-1.5 px-1 rounded-lg transition-all ${
+                activeGroup === 'missionaria'
+                  ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Missionária
+            </button>
+            <button
+              onClick={() => {
+                setActiveGroup('camisetas');
+                onSelectView('visao_geral');
+              }}
+              className={`py-1.5 px-1 rounded-lg transition-all ${
+                activeGroup === 'camisetas'
+                  ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Camisetas
+            </button>
+            <button
+              onClick={() => {
+                setActiveGroup('coordenacao');
+                onSelectView('governanca');
+              }}
+              className={`py-1.5 px-1 rounded-lg transition-all ${
+                activeGroup === 'coordenacao'
+                  ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Governança
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Navigation Links */}
       <nav className="flex-1 px-4 py-3 space-y-1 overflow-y-auto">

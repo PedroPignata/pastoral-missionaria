@@ -7,7 +7,7 @@ import { googleSheetsService } from '../services/googleSheetsService.js';
 export const ordersRouter = Router();
 
 // GET /api/orders
-ordersRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+ordersRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { campaign_id, payment_status, production_status, delivery_status, model, size, search } = req.query;
 
   let query = `
@@ -84,6 +84,7 @@ ordersRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Respon
 // GET /api/orders/:id
 ordersRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
+  const isCoord = req.user?.role === 'admin' || req.user?.role === 'coordenador';
 
   const order = db.prepare(`
     SELECT o.*, m.name as member_name, m.phone as member_phone, c.name as campaign_name
@@ -95,6 +96,17 @@ ordersRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Res
 
   if (!order) {
     return res.status(404).json({ error: 'Pedido não encontrado.' });
+  }
+
+  // Security check: if not coordinator, user can only access their own linked order
+  if (!isCoord) {
+    const linkedMember = db.prepare(`
+      SELECT buyer_member_id FROM pastoral_members WHERE user_id = ?
+    `).get(req.user?.id) as any;
+
+    if (!linkedMember || linkedMember.buyer_member_id !== order.member_id) {
+      return res.status(403).json({ error: 'Você não tem permissão para visualizar o pedido de outro membro.' });
+    }
   }
 
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);

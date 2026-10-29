@@ -400,11 +400,37 @@ export const api = {
     return handleResponse<{ themes: any[]; labs: any[]; evaluations: any[] }>(res);
   },
 
-  async drawLabThemes(data: { title: string; lab_date: string; duration_minutes: number; speakers: string[]; notes?: string }) {
+  async drawLabThemes(data: { title: string; lab_date: string; duration_minutes: number; speakers: string[]; notes?: string; draw_mode?: string }) {
     const res = await fetch(`${API_BASE}/platform/labs/draw`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async createLabTheme(data: { title: string; description?: string }) {
+    const res = await fetch(`${API_BASE}/platform/labs/themes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async updateLabTheme(id: string, data: { title?: string; description?: string; active?: boolean }) {
+    const res = await fetch(`${API_BASE}/platform/labs/themes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async toggleArchiveLabTheme(id: string) {
+    const res = await fetch(`${API_BASE}/platform/labs/themes/${id}/archive`, {
+      method: 'PATCH',
+      headers: getAuthHeader(),
     });
     return handleResponse<any>(res);
   },
