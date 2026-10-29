@@ -47,6 +47,39 @@ export function requireRole(allowedRoles: SystemRole[]) {
   };
 }
 
+// GET /api/auth/config (Configuração pública de provedores de autenticação)
+authRouter.get('/config', (_req: Request, res: Response) => {
+  let googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+  if (!googleClientId) {
+    try {
+      const row = db.prepare("SELECT value_json FROM integration_settings WHERE key = 'google_oauth'").get() as any;
+      if (row) {
+        const parsed = JSON.parse(row.value_json);
+        googleClientId = parsed.client_id || '';
+      }
+    } catch {}
+  }
+  return res.json({ googleClientId });
+});
+
+// POST /api/auth/google-client-id (Configuração do Google Client ID por coordenadores)
+authRouter.post('/google-client-id', (req: Request, res: Response) => {
+  const { client_id } = req.body;
+  if (!client_id || typeof client_id !== 'string') {
+    return res.status(400).json({ error: 'Client ID do Google inválido.' });
+  }
+
+  const cleanClientId = client_id.trim();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO integration_settings (key, value_json, updated_at)
+    VALUES ('google_oauth', ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+  `).run(JSON.stringify({ client_id: cleanClientId }), now);
+
+  return res.json({ message: 'Google Client ID salvo com sucesso!', googleClientId: cleanClientId });
+});
+
 // POST /api/auth/login (Tradicional com senha)
 authRouter.post('/login', (req: Request, res: Response) => {
   const { email, password } = req.body;

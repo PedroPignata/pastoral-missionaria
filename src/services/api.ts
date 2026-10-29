@@ -635,6 +635,20 @@ export const api = {
     });
     return handleResponse<any>(res);
   },
+
+  async getAuthConfig() {
+    const res = await fetch(`${API_BASE}/auth/config`);
+    return handleResponse<{ googleClientId: string }>(res);
+  },
+
+  async saveGoogleClientId(client_id: string) {
+    const res = await fetch(`${API_BASE}/auth/google-client-id`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id }),
+    });
+    return handleResponse<{ message: string; googleClientId: string }>(res);
+  },
 };
 
 
