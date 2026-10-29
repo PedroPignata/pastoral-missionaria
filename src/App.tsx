@@ -11,6 +11,7 @@ import { Calendario2027View } from './views/Calendario2027View';
 import { MissoesEnviosView } from './views/MissoesEnviosView';
 import { FormacaoLaboratoriosView } from './views/FormacaoLaboratoriosView';
 import { MinhaCamisetaView } from './views/MinhaCamisetaView';
+import { ComunidadeMissionariaView } from './views/ComunidadeMissionariaView';
 import { GovernancaSucessaoView } from './views/GovernancaSucessaoView';
 import { PublicPortalView } from './views/PublicPortalView';
 
@@ -34,6 +35,7 @@ import { RecordDeliveryModal } from './components/modals/RecordDeliveryModal';
 import { OrderDetailsModal } from './components/modals/OrderDetailsModal';
 import { WhatsAppModal } from './components/modals/WhatsAppModal';
 import { EditOrderModal } from './components/modals/EditOrderModal';
+import { OnboardingModal } from './components/modals/OnboardingModal';
 
 import { api } from './services/api';
 import { Order, Member, Campaign, Payment, DashboardKPIs, GoogleSheetsConfig } from './types';
@@ -68,6 +70,7 @@ export const App: React.FC = () => {
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<Order | null>(null);
   const [selectedOrderForWhatsApp, setSelectedOrderForWhatsApp] = useState<Order | null>(null);
   const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null);
+  const [isOnboardingDismissed, setIsOnboardingDismissed] = useState(false);
 
   // Load system data based on user authorization
   const loadAllData = useCallback(async () => {
@@ -242,6 +245,8 @@ export const App: React.FC = () => {
             />
           )}
 
+          {currentView === 'comunidade' && <ComunidadeMissionariaView />}
+
           {currentView === 'calendario_2027' && <Calendario2027View />}
 
           {currentView === 'missoes_envios' && <MissoesEnviosView />}
@@ -391,6 +396,15 @@ export const App: React.FC = () => {
         onClose={() => setSelectedOrderForEdit(null)}
         order={selectedOrderForEdit}
         onOrderUpdated={loadAllData}
+      />
+
+      <OnboardingModal
+        isOpen={user?.role === 'pendente' && !isOnboardingDismissed}
+        onClose={() => setIsOnboardingDismissed(true)}
+        onComplete={() => {
+          setIsOnboardingDismissed(true);
+          loadAllData();
+        }}
       />
     </div>
   );

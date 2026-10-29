@@ -40,3 +40,19 @@ def test_orders_security_unauthorized_blocked():
     # Negative security test: Unauthenticated request to list all orders MUST fail
     response = client.get("/api/v1/orders/")
     assert response.status_code in [401, 403]
+
+def test_google_auth_and_onboarding():
+    # New user logging in via Google
+    response = client.post("/api/v1/auth/google", json={
+        "email": "novo.missionario.teste@gmail.com",
+        "name": "Missionário Teste",
+        "picture": "https://example.com/avatar.png",
+        "google_id": "google_sub_123456"
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["user"]["email"] == "novo.missionario.teste@gmail.com"
+    assert data["user"]["role"] == "pendente"
+    assert data["needs_onboarding"] is True
+

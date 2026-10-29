@@ -10,6 +10,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   Database,
+  Clock,
+  UserPlus,
+  Check,
+  X,
+  Mail,
 } from 'lucide-react';
 
 const QUALIFICATIONS_OPTIONS = [
@@ -54,6 +59,16 @@ export const GovernancaSucessaoView: React.FC = () => {
   const [newCoordinatorTitle, setNewCoordinatorTitle] = useState('Coordenador(a) da Pastoral Missionária');
   const [successionNotes, setSuccessionNotes] = useState('');
 
+  // Pending Approvals & Google Users
+  const [pendingData, setPendingData] = useState<{ pendingUsers: any[]; pendingRequests: any[] }>({
+    pendingUsers: [],
+    pendingRequests: [],
+  });
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteRole, setInviteRole] = useState<'coordenador' | 'delegado' | 'membro'>('coordenador');
+  const [isInviting, setIsInviting] = useState(false);
+
   const loadGovernance = async () => {
     try {
       const data = await api.getGovernanceData();
@@ -63,8 +78,65 @@ export const GovernancaSucessaoView: React.FC = () => {
       if (data.pastoralMembers?.length > 0 && !selectedMemberId) {
         setSelectedMemberId(data.pastoralMembers[0].id);
       }
+
+      if (canManage) {
+        const approvals = await api.getPendingApprovals();
+        setPendingData(approvals);
+      }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleApproveRequest = async (requestId: string, role = 'membro') => {
+    try {
+      await api.approveClaim({ request_id: requestId, role });
+      showMessage('Vínculo aprovado com sucesso!');
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message, true);
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      await api.rejectClaim({ request_id: requestId });
+      showMessage('Solicitação recusada.');
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message, true);
+    }
+  };
+
+  const handleApproveUserDirectly = async (userId: string, role = 'membro') => {
+    try {
+      await api.approveClaim({ user_id: userId, role });
+      showMessage(`Usuário aprovado com papel: ${role}!`);
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message, true);
+    }
+  };
+
+  const handleCreateInstitutionalAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail || !inviteName) return;
+    setIsInviting(true);
+    try {
+      await api.createUser({
+        name: inviteName.trim(),
+        email: inviteEmail.trim().toLowerCase(),
+        role: inviteRole,
+        password: 'pastoral@google',
+      });
+      showMessage(`Conta institucional para ${inviteName} (${inviteRole}) criada com sucesso!`);
+      setInviteEmail('');
+      setInviteName('');
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Falha ao criar conta institucional.', true);
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -189,6 +261,160 @@ export const GovernancaSucessaoView: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-rose-600" />
           <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Card de Aprovações Pendentes e Vínculos Google */}
+      {canManage && (
+        <div className="bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-100">
+            <div>
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Clock className="w-4.5 h-4.5 text-amber-600" />
+                <span>Aprovações Pendentes & Contas Google</span>
+                {(pendingData.pendingUsers.length > 0 || pendingData.pendingRequests.length > 0) && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                    {pendingData.pendingUsers.length + pendingData.pendingRequests.length} pendente(s)
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Revise solicitações de novos missionários que entraram via Google e desejam vincular seus cadastros ou pedidos
+              </p>
+            </div>
+
+            <div className="text-[11px] text-zinc-400">
+              Coordenadores responsáveis: <strong>Pedro e Fernanda</strong>
+            </div>
+          </div>
+
+          {/* Lista de Solicitações de Vínculo */}
+          {pendingData.pendingRequests.length > 0 && (
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-bold text-pastoral-cafe uppercase tracking-wider flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-pastoral-dourado" />
+                Solicitações de Vínculo a Compradores/Membros:
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pendingData.pendingRequests.map((req) => (
+                  <div key={req.id} className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/40 flex flex-col justify-between space-y-2">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-xs text-pastoral-cafe">{req.user_name}</span>
+                        <span className="text-[10px] text-zinc-400">{req.user_email}</span>
+                      </div>
+                      <p className="text-xs text-zinc-700 mt-1">
+                        Deseja vincular ao comprador: <strong>{req.claimed_member_name}</strong>
+                      </p>
+                      {req.user_notes && (
+                        <p className="text-[11px] text-zinc-500 italic mt-0.5">"{req.user_notes}"</p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-amber-100">
+                      <button
+                        onClick={() => handleRejectRequest(req.id)}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+                      >
+                        Recusar
+                      </button>
+                      <button
+                        onClick={() => handleApproveRequest(req.id, 'membro')}
+                        className="px-3 py-1 text-xs font-bold rounded-lg text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 transition-colors flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Aprovar Membro</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lista de Novos Usuários Aguardando Liberação */}
+          {pendingData.pendingUsers.length > 0 && (
+            <div className="space-y-2.5 pt-2">
+              <h4 className="text-xs font-bold text-pastoral-cafe uppercase tracking-wider flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-pastoral-dourado" />
+                Novos Usuários Google Aguardando Liberação de Papel:
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pendingData.pendingUsers.map((u) => (
+                  <div key={u.id} className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-xs text-pastoral-cafe">{u.name}</p>
+                      <p className="text-[11px] text-zinc-500">{u.email}</p>
+                      <span className="text-[10px] text-amber-700 font-semibold uppercase">Status: Pendente</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleApproveUserDirectly(u.id, 'membro')}
+                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-pastoral-dourado text-pastoral-profundo hover:bg-pastoral-dourado-claro"
+                      >
+                        Aprovar Membro
+                      </button>
+                      <button
+                        onClick={() => handleApproveUserDirectly(u.id, 'delegado')}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-zinc-200 text-zinc-800 hover:bg-zinc-300"
+                      >
+                        Delegado
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {pendingData.pendingUsers.length === 0 && pendingData.pendingRequests.length === 0 && (
+            <div className="p-4 rounded-xl bg-zinc-50 text-center text-xs text-zinc-400">
+              Nenhuma aprovação de cadastro ou vínculo pendente no momento. Todas as contas estão regulares.
+            </div>
+          )}
+
+          {/* Formulário de Criação/Convite Institucional Direto */}
+          <form onSubmit={handleCreateInstitutionalAccount} className="pt-4 border-t border-zinc-100 space-y-3">
+            <h4 className="text-xs font-bold text-pastoral-cafe uppercase tracking-wider flex items-center gap-1.5">
+              <UserPlus className="w-3.5 h-3.5 text-pastoral-vinho" />
+              Cadastrar ou Pré-Autorizar Conta Google na Pastoral
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                placeholder="Nome do missionário(a)"
+                className="px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                required
+              />
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="E-mail Google (Gmail)"
+                className="px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                required
+              />
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as any)}
+                className="px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+              >
+                <option value="coordenador">Papel: Coordenador(a)</option>
+                <option value="delegado">Papel: Delegado(a)</option>
+                <option value="membro">Papel: Membro</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={isInviting}
+              className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-pastoral-vinho text-white hover:bg-pastoral-cafe transition-colors disabled:opacity-50"
+            >
+              {isInviting ? 'Registrando...' : 'Cadastrar / Pré-autorizar Conta'}
+            </button>
+          </form>
         </div>
       )}
 

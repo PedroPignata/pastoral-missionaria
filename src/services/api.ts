@@ -529,5 +529,107 @@ export const api = {
     });
     return handleResponse<any>(res);
   },
+
+  // 32-36. Comunidade Missionária
+  async getCommunityPosts(category?: string) {
+    const url = category && category !== 'Todas'
+      ? `${API_BASE}/community/posts?category=${encodeURIComponent(category)}`
+      : `${API_BASE}/community/posts`;
+    const res = await fetch(url, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async createCommunityPost(data: { content: string; category?: string; image_url?: string; link_url?: string }) {
+    const res = await fetch(`${API_BASE}/community/posts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async toggleLikePost(postId: string) {
+    const res = await fetch(`${API_BASE}/community/posts/${postId}/like`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<{ liked: boolean; likes_count: number }>(res);
+  },
+
+  async getPostComments(postId: string) {
+    const res = await fetch(`${API_BASE}/community/posts/${postId}/comments`, {
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any[]>(res);
+  },
+
+  async addPostComment(postId: string, content: string) {
+    const res = await fetch(`${API_BASE}/community/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ content }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async deleteCommunityPost(postId: string) {
+    const res = await fetch(`${API_BASE}/community/posts/${postId}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
+  // 37-42. Google Auth & Onboarding / Vínculo de Membros
+  async loginWithGoogle(data: { credential?: string; email?: string; name?: string; picture?: string; google_id?: string }) {
+    const res = await fetch(`${API_BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ token: string; user: any; needs_onboarding?: boolean }>(res);
+  },
+
+  async getUnclaimedMembers() {
+    const res = await fetch(`${API_BASE}/auth/unclaimed-members`, {
+      headers: getAuthHeader(),
+    });
+    return handleResponse<{ id: string; name: string; display_name: string; orders_count: number }[]>(res);
+  },
+
+  async claimMember(claimed_member_id: string, notes?: string) {
+    const res = await fetch(`${API_BASE}/auth/claim-member`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ claimed_member_id, notes }),
+    });
+    return handleResponse<{ message: string; status: string; auto_approved: boolean }>(res);
+  },
+
+  async getPendingApprovals() {
+    const res = await fetch(`${API_BASE}/auth/pending-approvals`, {
+      headers: getAuthHeader(),
+    });
+    return handleResponse<{ pendingUsers: any[]; pendingRequests: any[] }>(res);
+  },
+
+  async approveClaim(data: { request_id?: string; user_id?: string; role?: string; claimed_member_id?: string }) {
+    const res = await fetch(`${API_BASE}/auth/approve-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async rejectClaim(data: { request_id?: string; user_id?: string; reason?: string }) {
+    const res = await fetch(`${API_BASE}/auth/reject-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
 };
+
 

@@ -10,6 +10,8 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=True)
     role = Column(String, nullable=False, default="membro")  # admin, coordenador, delegado, membro, pendente
+    google_id = Column(String, nullable=True)
+    picture_url = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 

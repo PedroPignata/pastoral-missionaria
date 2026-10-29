@@ -18,6 +18,7 @@ import {
   MapPin,
   CheckCircle2,
   Bookmark,
+  Users,
 } from 'lucide-react';
 
 interface PainelMissionarioViewProps {
@@ -157,7 +158,20 @@ export const PainelMissionarioView: React.FC<PainelMissionarioViewProps> = ({
       </div>
 
       {/* 21. Atalhos Rápidos e Úteis */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        <button
+          onClick={() => onNavigate('comunidade')}
+          className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-xs hover:border-pastoral-dourado hover:shadow-md transition-all text-left group"
+        >
+          <div className="w-9 h-9 rounded-xl bg-amber-50 text-pastoral-dourado flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+            <Users className="w-4.5 h-4.5" />
+          </div>
+          <h4 className="font-serif font-bold text-xs text-pastoral-cafe group-hover:text-pastoral-vinho">
+            Comunidade
+          </h4>
+          <p className="text-[11px] text-zinc-400 mt-0.5">Partilha & vivência</p>
+        </button>
+
         <button
           onClick={() => onNavigate('calendario_2027')}
           className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-xs hover:border-pastoral-dourado hover:shadow-md transition-all text-left group"

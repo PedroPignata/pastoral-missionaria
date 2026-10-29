@@ -49,6 +49,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
 
   const ecosystemItems = [
     { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
+    { key: 'comunidade', label: 'Comunidade Missionária', icon: Users },
     { key: 'calendario_2027', label: 'Calendário 2027 (26 datas)', icon: Calendar },
     { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
     { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },

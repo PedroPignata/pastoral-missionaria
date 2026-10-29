@@ -25,8 +25,10 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('admin', 'coordenador', 'consulta')),
+      password_hash TEXT,
+      role TEXT NOT NULL CHECK(role IN ('admin', 'coordenador', 'delegado', 'membro', 'pendente', 'consulta')),
+      google_id TEXT,
+      picture_url TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

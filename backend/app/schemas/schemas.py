@@ -6,10 +6,18 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+class GoogleLoginRequest(BaseModel):
+    credential: Optional[str] = None
+    email: Optional[str] = None
+    name: Optional[str] = None
+    picture: Optional[str] = None
+    google_id: Optional[str] = None
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: dict
+    needs_onboarding: Optional[bool] = False
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -17,6 +25,8 @@ class UserOut(BaseModel):
     name: str
     email: str
     role: str
+    picture_url: Optional[str] = None
+    google_id: Optional[str] = None
     created_at: str
 
 # Members

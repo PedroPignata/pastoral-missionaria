@@ -20,6 +20,7 @@ import { sheetsRouter } from './routes/sheets.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 import { settingsRouter } from './routes/settings.js';
 import { platformRouter } from './routes/platform.js';
+import { communityRouter } from './routes/community.js';
 
 dotenv.config();
 
@@ -52,6 +53,7 @@ app.use('/api/sheets', sheetsRouter);
 app.use('/api/whatsapp', whatsappRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/platform', platformRouter);
+app.use('/api/community', communityRouter);
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {

@@ -1,10 +1,12 @@
-export type UserRole = 'admin' | 'coordenador' | 'consulta';
+export type UserRole = 'admin' | 'coordenador' | 'delegado' | 'membro' | 'pendente' | 'consulta';
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  picture_url?: string;
+  google_id?: string;
   created_at?: string;
 }
 

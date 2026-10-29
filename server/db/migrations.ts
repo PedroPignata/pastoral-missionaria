@@ -402,6 +402,94 @@ export function runMigrations() {
     console.log('✓ Migração 001_pastoral_ecosystem_v2 aplicada com sucesso.');
   }
 
+  // Migration 002: User Roles, Google Auth, Onboarding & Community
+  if (!applied.has('002_user_roles_and_google_auth')) {
+    const migrate002 = db.transaction(() => {
+      // 1. Recreate users table to expand role CHECK constraint and add google_id / picture_url
+      db.exec(`
+        CREATE TABLE users_temp (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          password_hash TEXT,
+          role TEXT NOT NULL CHECK(role IN ('admin', 'coordenador', 'delegado', 'membro', 'pendente', 'consulta')),
+          google_id TEXT,
+          picture_url TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        INSERT INTO users_temp (id, name, email, password_hash, role, created_at, updated_at)
+        SELECT id, name, email, password_hash, role, created_at, updated_at FROM users;
+
+        DROP TABLE users;
+        ALTER TABLE users_temp RENAME TO users;
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+
+        -- Onboarding e Vínculo de Membros / Compradores
+        CREATE TABLE IF NOT EXISTS member_link_requests (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          claimed_member_id TEXT REFERENCES members(id),
+          claimed_pastoral_member_id TEXT REFERENCES pastoral_members(id),
+          status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente', 'aprovado', 'rejeitado')),
+          user_notes TEXT,
+          reviewed_by TEXT,
+          reviewed_at TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        -- Comunidade Missionária (Feed de Postagens, Curtidas e Comentários)
+        CREATE TABLE IF NOT EXISTS community_posts (
+          id TEXT PRIMARY KEY,
+          author_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          author_role TEXT NOT NULL DEFAULT 'membro',
+          author_avatar TEXT,
+          content TEXT NOT NULL,
+          category TEXT NOT NULL DEFAULT 'Partilha',
+          image_url TEXT,
+          link_url TEXT,
+          likes_count INTEGER NOT NULL DEFAULT 0,
+          comments_count INTEGER NOT NULL DEFAULT 0,
+          is_pinned INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS community_likes (
+          post_id TEXT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (post_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS community_comments (
+          id TEXT PRIMARY KEY,
+          post_id TEXT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+          author_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          author_avatar TEXT,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_posts_created_at ON community_posts(created_at);
+        CREATE INDEX IF NOT EXISTS idx_comments_post_id ON community_comments(post_id);
+      `);
+
+      db.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
+        '002_user_roles_and_google_auth',
+        'Suporte a Google Auth, perfis expandidos, vínculo de membros e comunidade missionária',
+        now
+      );
+    });
+
+    migrate002();
+    console.log('✓ Migração 002_user_roles_and_google_auth aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }

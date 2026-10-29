@@ -23,6 +23,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export type NavItemKey =
   | 'painel_missionario'
+  | 'comunidade'
   | 'calendario_2027'
   | 'missoes_envios'
   | 'formacao_laboratorios'
@@ -96,6 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Vida Missionária',
       items: [
         { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
+        { key: 'comunidade', label: 'Comunidade Missionária', icon: Users, badge: 'Novo' },
         { key: 'calendario_2027', label: 'Calendário 2027', icon: Calendar, badge: '26 datas' },
         { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
         { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },
