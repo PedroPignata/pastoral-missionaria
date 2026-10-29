@@ -8,5 +8,9 @@ dist-server/
 data/backups/
 *.sqlite-shm
 *.sqlite-wal
+backend/venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 
 
