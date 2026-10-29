@@ -81,6 +81,58 @@ ordersRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']), 
   return res.json(orders);
 });
 
+// GET /api/orders/my-orders (Retorna exclusivamente o(s) pedido(s) do usuário autenticado)
+ordersRouter.get('/my-orders', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  const userName = req.user!.name;
+
+  let memberId: string | null = null;
+  const pm = db.prepare('SELECT buyer_member_id FROM pastoral_members WHERE user_id = ?').get(userId) as any;
+  if (pm?.buyer_member_id) {
+    memberId = pm.buyer_member_id;
+  } else {
+    const mem = db.prepare('SELECT id FROM members WHERE name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE').get(userName, userName) as any;
+    if (mem) {
+      memberId = mem.id;
+    }
+  }
+
+  if (!memberId) {
+    return res.json([]);
+  }
+
+  const rawOrders = db.prepare(`
+    SELECT
+      o.*,
+      m.name as member_name,
+      m.display_name as member_display_name,
+      m.phone as member_phone,
+      c.name as campaign_name,
+      json_group_array(json_object(
+        'id', oi.id,
+        'model', oi.model,
+        'size', oi.size,
+        'quantity', oi.quantity,
+        'unit_price_cents', oi.unit_price_cents,
+        'total_price_cents', oi.total_price_cents
+      )) as items_json
+    FROM orders o
+    JOIN members m ON m.id = o.member_id
+    JOIN campaigns c ON c.id = o.campaign_id
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.member_id = ?
+    GROUP BY o.id
+    ORDER BY o.created_at DESC
+  `).all(memberId) as any[];
+
+  const orders = rawOrders.map((o) => ({
+    ...o,
+    items: JSON.parse(o.items_json || '[]').filter((i: any) => i.id !== null),
+  }));
+
+  return res.json(orders);
+});
+
 // GET /api/orders/:id
 ordersRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;

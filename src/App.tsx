@@ -107,13 +107,15 @@ export const App: React.FC = () => {
         setSheetsConfig(sheetsStatus.config);
         setPendingSyncCount(sheetsStatus.pendingJobsCount);
       } else {
-        // Members only load active campaigns and basic context
-        const [campaignsData, activeCamp] = await Promise.all([
+        // Members only load their own orders, active campaigns and basic context
+        const [campaignsData, activeCamp, myOrders] = await Promise.all([
           api.getCampaigns(),
           api.getActiveCampaign(),
+          api.getMyOrders().catch(() => []),
         ]);
         setCampaigns(campaignsData);
         setActiveCampaign(activeCamp);
+        setOrders(myOrders);
       }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);

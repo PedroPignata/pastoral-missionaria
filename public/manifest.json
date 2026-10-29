@@ -1,0 +1,17 @@
+{
+  "short_name": "Missionária",
+  "name": "Pastoral Missionária — Ágape Apostolado",
+  "description": "Plataforma e ecossistema digital da Pastoral Missionária (Paróquia São Vicente de Paulo — Planaltina-DF)",
+  "icons": [
+    {
+      "src": "/assets/cross.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#281F1C",
+  "theme_color": "#281F1C",
+  "display": "standalone",
+  "orientation": "portrait"
+}

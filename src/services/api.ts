@@ -98,6 +98,11 @@ export const api = {
     return handleResponse<Order[]>(res);
   },
 
+  async getMyOrders() {
+    const res = await fetch(`${API_BASE}/orders/my-orders`, { headers: getAuthHeader() });
+    return handleResponse<Order[]>(res);
+  },
+
   async getOrder(id: string) {
     const res = await fetch(`${API_BASE}/orders/${id}`, { headers: getAuthHeader() });
     return handleResponse<Order>(res);

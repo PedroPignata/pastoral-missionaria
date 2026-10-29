@@ -106,22 +106,38 @@ export const MinhaCamisetaView: React.FC<MinhaCamisetaViewProps> = ({ orders }) 
 
         {/* Card 2: Acompanhamento Individual do Pedido e 6 Etapas */}
         <div className="bg-white rounded-2xl p-6 border border-zinc-200/80 shadow-xs space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1.5">
-              Consulte o Pedido do Missionário:
-            </label>
-            <select
-              value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              className="w-full p-2.5 text-xs font-bold rounded-xl border border-zinc-300 bg-white text-pastoral-cafe"
-            >
-              {orders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.member_name} — {o.items.map((i) => `${i.quantity}x ${i.model} (${i.size})`).join(', ')}
-                </option>
-              ))}
-            </select>
-          </div>
+          {orders.length > 1 && (
+            <div>
+              <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1.5">
+                Consulte o Pedido do Missionário:
+              </label>
+              <select
+                value={selectedOrderId}
+                onChange={(e) => setSelectedOrderId(e.target.value)}
+                className="w-full p-2.5 text-xs font-bold rounded-xl border border-zinc-300 bg-white text-pastoral-cafe"
+              >
+                {orders.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.member_name} — {o.items.map((i) => `${i.quantity}x ${i.model} (${i.size})`).join(', ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {orders.length === 0 && (
+            <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 text-center space-y-3">
+              <Shirt className="w-8 h-8 text-zinc-400 mx-auto" />
+              <div className="space-y-1">
+                <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
+                  Nenhum pedido vinculado à sua conta
+                </h4>
+                <p className="text-xs text-zinc-500">
+                  Se você já encomendou sua camiseta na lista dos 19 compradores, solicite o vínculo na tela inicial de acolhimento para acompanhar seu status aqui.
+                </p>
+              </div>
+            </div>
+          )}
 
           {selectedOrder && (
             <>
