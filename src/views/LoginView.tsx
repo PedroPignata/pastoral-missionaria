@@ -4,6 +4,8 @@ import { api } from '../services/api';
 import { PublicPortalView } from './PublicPortalView';
 import { Cross, Lock, Mail, ArrowRight, Globe, KeyRound, ExternalLink, CheckCircle2, ShieldCheck } from 'lucide-react';
 
+const DEFAULT_GOOGLE_CLIENT_ID = '744456406049-ammcnn4uslj5itlu5arj4iq9kvah0paf.apps.googleusercontent.com';
+
 export const LoginView: React.FC = () => {
   const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
@@ -13,7 +15,7 @@ export const LoginView: React.FC = () => {
   const [showPublicPortal, setShowPublicPortal] = useState(false);
 
   // Google OAuth State
-  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientId, setGoogleClientId] = useState(DEFAULT_GOOGLE_CLIENT_ID);
   const [showGoogleConfigModal, setShowGoogleConfigModal] = useState(false);
   const [inputClientId, setInputClientId] = useState('');
   const [isSavingClientId, setIsSavingClientId] = useState(false);

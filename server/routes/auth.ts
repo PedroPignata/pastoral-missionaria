@@ -47,6 +47,8 @@ export function requireRole(allowedRoles: SystemRole[]) {
   };
 }
 
+const DEFAULT_GOOGLE_CLIENT_ID = '744456406049-ammcnn4uslj5itlu5arj4iq9kvah0paf.apps.googleusercontent.com';
+
 // GET /api/auth/config (Configuração pública de provedores de autenticação)
 authRouter.get('/config', (_req: Request, res: Response) => {
   let googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
@@ -58,6 +60,9 @@ authRouter.get('/config', (_req: Request, res: Response) => {
         googleClientId = parsed.client_id || '';
       }
     } catch {}
+  }
+  if (!googleClientId) {
+    googleClientId = DEFAULT_GOOGLE_CLIENT_ID;
   }
   return res.json({ googleClientId });
 });
