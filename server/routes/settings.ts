@@ -89,7 +89,7 @@ settingsRouter.put('/pix', authenticateToken, requireRole(['admin', 'coordenador
 });
 
 // GET /api/settings/backup/export
-settingsRouter.get('/backup/export', authenticateToken, requireRole(['admin']), (_req: AuthenticatedRequest, res: Response) => {
+settingsRouter.get('/backup/export', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
   const users = db.prepare('SELECT id, name, email, role, created_at FROM users').all();
   const campaigns = db.prepare('SELECT * FROM campaigns').all();
   const members = db.prepare('SELECT * FROM members').all();

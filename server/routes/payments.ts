@@ -157,7 +157,7 @@ paymentsRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']
 });
 
 // POST /api/payments/:id/reverse (Estorno/Correção)
-paymentsRouter.post('/:id/reverse', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+paymentsRouter.post('/:id/reverse', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { reason } = req.body;
 

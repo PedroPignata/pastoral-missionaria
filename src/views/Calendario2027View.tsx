@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import {
   Calendar as CalendarIcon,
   Plus,
-  RefreshCw,
   Filter,
   Clock,
   MapPin,
@@ -16,6 +15,13 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
+  Edit2,
+  Trash2,
+  Landmark,
+  Cake,
+  Info,
+  CalendarCheck2,
+  Share2,
 } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -51,6 +57,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; dot: string }>
   Eventos: { bg: 'bg-orange-50', text: 'text-orange-800', dot: 'bg-orange-500' },
   Arrecadações: { bg: 'bg-lime-50', text: 'text-lime-800', dot: 'bg-lime-600' },
   Confraternizações: { bg: 'bg-pink-50', text: 'text-pink-800', dot: 'bg-pink-500' },
+  Feriados: { bg: 'bg-slate-100', text: 'text-slate-800', dot: 'bg-slate-500' },
   Outros: { bg: 'bg-zinc-100', text: 'text-zinc-700', dot: 'bg-zinc-500' },
 };
 
@@ -65,7 +72,10 @@ export const Calendario2027View: React.FC = () => {
   // View state: 'mes' (default grid), 'lista' (agenda), 'ano' (12 mini-grids)
   const [viewMode, setViewMode] = useState<'mes' | 'lista' | 'ano'>('mes');
 
-  // Obter data real no fuso America/Sao_Paulo (Seção 4.2)
+  // Activity filter tab
+  const [activityTab, setActivityTab] = useState<'todas' | 'pastoral' | 'feriados' | 'aniversarios'>('todas');
+
+  // Real date in America/Sao_Paulo
   const todaySP = useMemo(() => {
     try {
       const parts = new Intl.DateTimeFormat('pt-BR', {
@@ -98,35 +108,50 @@ export const Calendario2027View: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState<number>(todaySP.month);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
 
-  // Selected Day Details Modal
+  // Modals state
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
-
-  // Modal state for creating new event
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+  const [editingEvent, setEditingEvent] = useState<any | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState(todaySP.isoDate);
-  const [eventTime, setEventTime] = useState('');
-  const [location, setLocation] = useState('');
-  const [category, setCategory] = useState('Reuniões');
-  const [status, setStatus] = useState('Planejado');
-  const [description, setDescription] = useState('');
 
+  // New Event Form fields
+  const [newTitle, setNewTitle] = useState('');
+  const [newEventDate, setNewEventDate] = useState(todaySP.isoDate);
+  const [newEndDate, setNewEndDate] = useState('');
+  const [newEventTime, setNewEventTime] = useState('');
+  const [newLocation, setNewLocation] = useState('');
+  const [newCategory, setNewCategory] = useState('Reuniões');
+  const [newStatus, setNewStatus] = useState('Planejado');
+  const [newDescription, setNewDescription] = useState('');
+
+  // Edit Event Form fields
+  const [editTitle, setEditTitle] = useState('');
+  const [editEventDate, setEditEventDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editEventTime, setEditEventTime] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  // Fixed clean year numbers (2025, 2026, 2027, 2028)
   const yearOptions = useMemo(() => {
-    const setYears = new Set<number>([todaySP.year, 2026, 2027]);
+    const defaultYears = [2025, 2026, 2027, 2028];
+    const setYears = new Set<number>(defaultYears);
     for (const ev of events) {
       const y = parseInt(ev.event_date?.slice(0, 4), 10);
-      if (!isNaN(y)) setYears.add(y);
-    }
-    for (let i = -1; i <= 2; i++) {
-      setYears.add(todaySP.year + i);
+      if (!isNaN(y) && y >= 2024 && y <= 2030) setYears.add(y);
     }
     return Array.from(setYears).sort((a, b) => a - b);
-  }, [events, todaySP.year]);
+  }, [events]);
 
   const loadEvents = async () => {
     setLoading(true);
     try {
-      const list = await api.getCalendarEvents();
+      const list = await api.getCalendarEvents({
+        include_birthdays: true,
+        include_holidays: true,
+      });
       setEvents(list);
     } catch (e) {
       console.error(e);
@@ -139,26 +164,63 @@ export const Calendario2027View: React.FC = () => {
     loadEvents();
   }, []);
 
-  // Events filtered by category and active year
+  // Filtered events by year, category and activity tab
   const filteredEvents = useMemo(() => {
     return events.filter((ev) => {
       const evYear = parseInt(ev.event_date.slice(0, 4), 10);
-      if (evYear !== currentYear) return false;
-      if (selectedCategory !== 'Todas' && ev.category !== selectedCategory) {
-        return false;
+      const endYear = ev.end_date ? parseInt(ev.end_date.slice(0, 4), 10) : evYear;
+      if (evYear !== currentYear && endYear !== currentYear) return false;
+
+      // Filter by Activity Tab
+      if (activityTab === 'pastoral' && (ev.is_holiday || ev.is_birthday)) return false;
+      if (activityTab === 'feriados' && !ev.is_holiday) return false;
+      if (activityTab === 'aniversarios' && !ev.is_birthday) return false;
+
+      // Filter by Category
+      if (selectedCategory !== 'Todas') {
+        if (ev.category !== selectedCategory) return false;
       }
+
       return true;
     });
-  }, [events, currentYear, selectedCategory]);
+  }, [events, currentYear, selectedCategory, activityTab]);
 
-  // Map of events by ISO date string (YYYY-MM-DD) for fast grid lookup
+  // Fast map of events by date string with multi-day support
   const eventsByDate = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const ev of filteredEvents) {
-      if (!map[ev.event_date]) {
-        map[ev.event_date] = [];
+      const startDate = ev.event_date;
+      const endDate = ev.end_date || ev.event_date;
+
+      if (!endDate || endDate <= startDate) {
+        if (!map[startDate]) map[startDate] = [];
+        map[startDate].push(ev);
+      } else {
+        // Multi-day event spanning from startDate to endDate
+        const [sy, sm, sd] = startDate.split('-').map(Number);
+        const [ey, em, ed] = endDate.split('-').map(Number);
+        const cur = new Date(sy, sm - 1, sd);
+        const end = new Date(ey, em - 1, ed);
+
+        let count = 0;
+        while (cur <= end && count < 60) {
+          const y = cur.getFullYear();
+          const m = String(cur.getMonth() + 1).padStart(2, '0');
+          const d = String(cur.getDate()).padStart(2, '0');
+          const dStr = `${y}-${m}-${d}`;
+          if (!map[dStr]) map[dStr] = [];
+          if (!map[dStr].some((x) => x.id === ev.id)) {
+            map[dStr].push({
+              ...ev,
+              is_multi_day: true,
+              is_first_day: dStr === startDate,
+              is_last_day: dStr === endDate,
+            });
+          }
+          cur.setDate(cur.getDate() + 1);
+          count++;
+        }
       }
-      map[ev.event_date].push(ev);
     }
     return map;
   }, [filteredEvents]);
@@ -215,20 +277,23 @@ export const Calendario2027View: React.FC = () => {
     e.preventDefault();
     try {
       await api.createCalendarEvent({
-        title,
-        event_date: eventDate,
-        event_time: eventTime || null,
-        location: location || null,
-        category,
-        status,
-        description: description || null,
+        title: newTitle,
+        event_date: newEventDate,
+        end_date: newEndDate || null,
+        event_time: newEventTime || null,
+        location: newLocation || null,
+        category: newCategory,
+        status: newStatus,
+        description: newDescription || null,
       });
-      setFeedback('Evento criado com sucesso!');
+      setFeedback('Evento adicionado ao calendário com sucesso!');
       setIsNewOpen(false);
-      setTitle('');
-      setEventTime('');
-      setLocation('');
-      setDescription('');
+      setNewTitle('');
+      setNewEventDate(todaySP.isoDate);
+      setNewEndDate('');
+      setNewEventTime('');
+      setNewLocation('');
+      setNewDescription('');
       loadEvents();
       setTimeout(() => setFeedback(''), 4000);
     } catch (err: any) {
@@ -236,20 +301,75 @@ export const Calendario2027View: React.FC = () => {
     }
   };
 
-  const handleReimport = async () => {
-    if (!confirm('Deseja verificar e importar as 26 datas oficiais do Calendário 2027? Operação idempotente.')) return;
+  const openEditModal = (ev: any) => {
+    setEditingEvent(ev);
+    setEditTitle(ev.title);
+    setEditEventDate(ev.event_date);
+    setEditEndDate(ev.end_date || '');
+    setEditEventTime(ev.event_time || '');
+    setEditLocation(ev.location || '');
+    setEditCategory(ev.category || 'Reuniões');
+    setEditStatus(ev.status || 'Confirmado');
+    setEditDescription(ev.description || '');
+    setSelectedEvent(null);
+  };
+
+  const handleUpdateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEvent) return;
+
     try {
-      const res = await api.reimportCalendar2027();
-      setFeedback(`Verificação concluída: ${res.count} eventos oficiais garantidos!`);
+      await api.updateCalendarEvent(editingEvent.id, {
+        title: editTitle,
+        event_date: editEventDate,
+        end_date: editEndDate || null,
+        event_time: editEventTime || null,
+        location: editLocation || null,
+        category: editCategory,
+        status: editStatus,
+        description: editDescription,
+      });
+
+      setFeedback('Evento atualizado com sucesso!');
+      setEditingEvent(null);
       loadEvents();
-      setTimeout(() => setFeedback(''), 5000);
-    } catch (e: any) {
-      setFeedback('Erro ao reimportar: ' + e.message);
+      setTimeout(() => setFeedback(''), 4000);
+    } catch (err: any) {
+      setFeedback('Erro ao atualizar evento: ' + (err.message || 'Tente novamente'));
+    }
+  };
+
+  const handleCancelEvent = async (ev: any) => {
+    if (!confirm(`Deseja marcar o evento "${ev.title}" como Cancelado?`)) return;
+    try {
+      await api.updateCalendarEvent(ev.id, { status: 'Cancelado' });
+      setFeedback('Evento marcado como Cancelado.');
+      if (selectedEvent?.id === ev.id) setSelectedEvent(null);
+      if (editingEvent?.id === ev.id) setEditingEvent(null);
+      loadEvents();
+      setTimeout(() => setFeedback(''), 4000);
+    } catch (err: any) {
+      setFeedback('Erro ao cancelar: ' + err.message);
+    }
+  };
+
+  const handleDeleteEvent = async (ev: any) => {
+    if (!confirm(`Tem certeza que deseja EXCLUIR PERMANENTEMENTE o evento "${ev.title}"? Esta ação é irreversível.`)) return;
+    try {
+      await api.deleteCalendarEvent(ev.id, true);
+      setFeedback('Evento excluído do calendário.');
+      if (selectedEvent?.id === ev.id) setSelectedEvent(null);
+      if (editingEvent?.id === ev.id) setEditingEvent(null);
+      loadEvents();
+      setTimeout(() => setFeedback(''), 4000);
+    } catch (err: any) {
+      setFeedback('Erro ao excluir: ' + err.message);
     }
   };
 
   const openNewEventForDate = (dateStr: string) => {
-    setEventDate(dateStr);
+    setNewEventDate(dateStr);
+    setNewEndDate('');
     setIsNewOpen(true);
     setSelectedDateStr(null);
   };
@@ -258,45 +378,32 @@ export const Calendario2027View: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Top Header & Context */}
+      {/* 1. Header Limpo Conforme Seção 3 */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-3xl border border-zinc-200/80 shadow-xs">
         <div>
-          <div className="flex items-center gap-2 text-pastoral-dourado font-bold text-xs uppercase tracking-wider">
-            <CalendarIcon className="w-4 h-4" />
-            <span>Calendário Oficial da Pastoral Missionária</span>
-          </div>
-          <h2 className="font-serif text-xl sm:text-2xl font-bold text-pastoral-cafe mt-0.5">
-            Agenda e Atividades Missionárias
+          <h2 className="font-serif text-xl sm:text-2xl font-bold text-pastoral-cafe">
+            Calendário
           </h2>
-          <p className="text-xs text-zinc-500">
-            Reuniões, vigílias, estágios, retiros e laboratórios planejados
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Datas e atividades da Pastoral
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {canEdit && (
-            <>
-              <button
-                onClick={handleReimport}
-                className="px-3 py-2 rounded-xl text-xs font-semibold text-pastoral-cafe bg-pastoral-creme hover:bg-pastoral-creme-escuro border border-pastoral-dourado/40 flex items-center gap-1.5 transition-colors"
-                title="Garante as 26 datas do documento oficial sem duplicação"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-pastoral-dourado" />
-                <span>Revalidar Datas Oficiais</span>
-              </button>
-              <button
-                onClick={() => {
-                  setEventDate(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`);
-                  setIsNewOpen(true);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 flex items-center gap-1.5 shadow-gold transition-all active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Novo Evento</span>
-              </button>
-            </>
-          )}
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setNewEventDate(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`);
+                setNewEndDate('');
+                setIsNewOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 flex items-center gap-1.5 shadow-gold transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Evento</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {feedback && (
@@ -306,10 +413,10 @@ export const Calendario2027View: React.FC = () => {
         </div>
       )}
 
-      {/* Controls Bar: Navigation, Selectors, View Modes & Filters */}
+      {/* 2. Barra de Navegação, Filtros e Modos */}
       <div className="bg-white p-4 rounded-3xl border border-zinc-200/80 shadow-xs space-y-3">
+        {/* Linha 1: Seletores de Mês, Ano Limpo e Modos de Visualização */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          {/* Month/Year Navigation */}
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrevMonth}
@@ -347,6 +454,7 @@ export const Calendario2027View: React.FC = () => {
                 ))}
               </select>
 
+              {/* Seletor de Ano com números limpos (2025, 2026, 2027, 2028) */}
               <select
                 value={currentYear}
                 onChange={(e) => setCurrentYear(parseInt(e.target.value, 10))}
@@ -354,14 +462,14 @@ export const Calendario2027View: React.FC = () => {
               >
                 {yearOptions.map((y) => (
                   <option key={y} value={y}>
-                    {y} {y === 2027 ? '(Oficial)' : y === todaySP.year ? '(Atual)' : ''}
+                    {y}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* View Mode Switcher: Mês / Lista / Ano */}
+          {/* View Mode Switcher */}
           <div className="flex items-center gap-2">
             <div className="flex items-center p-1 rounded-xl bg-zinc-100 border border-zinc-200 text-xs font-semibold">
               <button
@@ -401,7 +509,7 @@ export const Calendario2027View: React.FC = () => {
               </button>
             </div>
 
-            {/* Category Filter */}
+            {/* Filtro por Categoria */}
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
@@ -416,37 +524,72 @@ export const Calendario2027View: React.FC = () => {
           </div>
         </div>
 
-        {/* November explanation banner if November is active */}
-        {currentMonth === 10 && currentYear === 2027 && (
-          <div className="p-3 bg-pastoral-creme/60 border border-pastoral-dourado/30 rounded-2xl text-xs text-pastoral-cafe flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-pastoral-dourado flex-shrink-0" />
-            <span>
-              <strong>Mês de Novembro/2027:</strong> No documento oficial da Pastoral Missionária, não há eventos previstos para este mês (período reservado para intercessão e descanso). Novos eventos podem ser agendados pela coordenação.
-            </span>
-          </div>
-        )}
+        {/* Linha 2: Abas de Escopo (Todas / Pastoral / Feriados / Aniversários) */}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-zinc-100">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mr-1">
+            Exibir:
+          </span>
+          <button
+            onClick={() => setActivityTab('todas')}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+              activityTab === 'todas'
+                ? 'bg-pastoral-cafe text-white shadow-xs'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            Todas as Atividades
+          </button>
+          <button
+            onClick={() => setActivityTab('pastoral')}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+              activityTab === 'pastoral'
+                ? 'bg-pastoral-dourado text-pastoral-profundo font-bold shadow-xs'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            ✝️ Atividades da Pastoral
+          </button>
+          <button
+            onClick={() => setActivityTab('feriados')}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+              activityTab === 'feriados'
+                ? 'bg-slate-700 text-white shadow-xs'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            🏛️ Feriados & Comemorações
+          </button>
+          <button
+            onClick={() => setActivityTab('aniversarios')}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+              activityTab === 'aniversarios'
+                ? 'bg-amber-400 text-amber-950 font-bold shadow-xs'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            🎂 Aniversários
+          </button>
+        </div>
       </div>
 
-      {/* MAIN VIEW: 1. GRADE MENSAL (Padrão) */}
+      {/* 3. MODO MÊS (Grade Principal) */}
       {viewMode === 'mes' && (
         <div className="bg-white rounded-3xl border border-zinc-200/80 shadow-xs overflow-hidden">
-          {/* Weekday Headers */}
-          <div className="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50/70 text-center text-xs font-bold text-zinc-500 py-3">
-            {WEEKDAY_NAMES.map((w, idx) => (
-              <div key={w} className={idx === 0 ? 'text-rose-700' : ''}>
-                {w}
-              </div>
+          {/* Header dos dias da semana */}
+          <div className="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50 text-center py-2 text-xs font-bold text-zinc-600">
+            {WEEKDAY_NAMES.map((name) => (
+              <div key={name}>{name}</div>
             ))}
           </div>
 
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-zinc-200">
-            {gridDays.map((item, idx) => {
+          {/* Grade de 7 colunas */}
+          <div className="grid grid-cols-7 divide-x divide-y divide-zinc-200/60">
+            {gridDays.map((item, index) => {
               if (!item.isCurrentMonth) {
                 return (
                   <div
-                    key={`empty-${idx}`}
-                    className="min-h-[100px] sm:min-h-[120px] bg-zinc-50/40 p-2"
+                    key={`empty-${index}`}
+                    className="min-h-[105px] sm:min-h-[120px] bg-zinc-50/50 p-2"
                   />
                 );
               }
@@ -458,7 +601,7 @@ export const Calendario2027View: React.FC = () => {
                 <div
                   key={item.dateStr}
                   onClick={() => setSelectedDateStr(item.dateStr)}
-                  className={`min-h-[100px] sm:min-h-[120px] p-2 flex flex-col justify-between cursor-pointer hover:bg-pastoral-creme/20 transition-colors group relative ${
+                  className={`min-h-[105px] sm:min-h-[120px] p-2 flex flex-col justify-between cursor-pointer hover:bg-pastoral-creme/25 transition-colors group relative ${
                     isToday ? 'bg-amber-50/50 ring-2 ring-pastoral-dourado/60' : 'bg-white'
                   }`}
                 >
@@ -479,55 +622,18 @@ export const Calendario2027View: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Badges on Desktop */}
+                  {/* Badges de Eventos em Desktop */}
                   <div className="mt-1 space-y-1 flex-1 overflow-hidden hidden sm:block">
                     {dayEvents.slice(0, 3).map((ev) => {
                       if (ev.is_birthday) {
-                        if (ev.is_birthday) {
-                    return (
-                      <div
-                        key={ev.id}
-                        className="p-4 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
-                            🎂 Aniversário Missionário
-                          </span>
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-200">
-                            Comemoração
-                          </span>
-                        </div>
-
-                        <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
-                          {ev.title}
-                        </h4>
-
-                        <p className="text-xs text-amber-900/80 leading-relaxed">
-                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
-                        </p>
-
-                        <div className="pt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
-                              navigator.clipboard.writeText(msg);
-                              setFeedback('Mensagem de felicitações copiada para a área de transferência!');
-                              setTimeout(() => setFeedback(''), 4000);
-                            }}
-                            className="text-xs px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-semibold transition-colors flex items-center gap-1.5"
-                          >
-                            <span>Copiar Felicitação para WhatsApp</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
+                        return (
                           <div
                             key={ev.id}
-                            className="px-1.5 py-0.5 rounded-md text-[10px] font-bold truncate flex items-center gap-1 bg-amber-100/90 text-amber-900 border border-amber-300/80"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEvent(ev);
+                            }}
+                            className="px-1.5 py-0.5 rounded-md text-[10px] font-bold truncate flex items-center gap-1 bg-amber-100/90 text-amber-900 border border-amber-300/80 hover:brightness-95"
                             title={ev.title}
                           >
                             <span>🎂</span>
@@ -535,59 +641,46 @@ export const Calendario2027View: React.FC = () => {
                           </div>
                         );
                       }
-                      const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
-                      if (ev.is_birthday) {
-                    return (
-                      <div
-                        key={ev.id}
-                        className="p-4 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
-                            🎂 Aniversário Missionário
-                          </span>
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-200">
-                            Comemoração
-                          </span>
-                        </div>
 
-                        <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
-                          {ev.title}
-                        </h4>
-
-                        <p className="text-xs text-amber-900/80 leading-relaxed">
-                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
-                        </p>
-
-                        <div className="pt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
-                              navigator.clipboard.writeText(msg);
-                              setFeedback('Mensagem de felicitações copiada para a área de transferência!');
-                              setTimeout(() => setFeedback(''), 4000);
+                      if (ev.is_holiday) {
+                        return (
+                          <div
+                            key={ev.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEvent(ev);
                             }}
-                            className="text-xs px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-semibold transition-colors flex items-center gap-1.5"
+                            className="px-1.5 py-0.5 rounded-md text-[10px] font-medium truncate flex items-center gap-1 bg-slate-100 text-slate-800 border border-slate-300 hover:brightness-95"
+                            title={`${ev.title} — ${ev.description}`}
                           >
-                            <span>Copiar Felicitação para WhatsApp</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  }
+                            <span className="flex-shrink-0">🏛️</span>
+                            <span className="truncate">{ev.title.replace('🏛️ ', '')}</span>
+                          </div>
+                        );
+                      }
 
-                  return (
+                      const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
+                      return (
                         <div
                           key={ev.id}
-                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold truncate flex items-center gap-1 ${color.bg} ${color.text} border border-black/5`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEvent(ev);
+                          }}
+                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold truncate flex items-center gap-1 ${color.bg} ${color.text} border border-black/5 hover:brightness-95 ${
+                            ev.status === 'Cancelado' ? 'line-through opacity-60' : ''
+                          }`}
                           title={`${ev.title} (${ev.category})`}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${color.dot}`} />
                           <span className="truncate">{ev.title}</span>
+                          {ev.is_multi_day && (
+                            <span className="text-[9px] opacity-70 ml-auto font-normal">multidia</span>
+                          )}
                         </div>
                       );
                     })}
+
                     {dayEvents.length > 3 && (
                       <span className="text-[10px] text-zinc-400 font-semibold block px-1">
                         +{dayEvents.length - 3} mais...
@@ -595,14 +688,20 @@ export const Calendario2027View: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Dot markers on Mobile */}
+                  {/* Marcadores de Pontos no Mobile */}
                   <div className="mt-1 flex flex-wrap gap-1 sm:hidden">
                     {dayEvents.map((ev) => {
                       const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
                       return (
                         <span
                           key={ev.id}
-                          className={`w-2 h-2 rounded-full ${ev.is_birthday ? 'bg-amber-400' : color.dot}`}
+                          className={`w-2 h-2 rounded-full ${
+                            ev.is_birthday
+                              ? 'bg-amber-400'
+                              : ev.is_holiday
+                              ? 'bg-slate-500'
+                              : color.dot
+                          }`}
                         />
                       );
                     })}
@@ -614,16 +713,16 @@ export const Calendario2027View: React.FC = () => {
         </div>
       )}
 
-      {/* 2. MODO LISTA (Agenda Compacta) */}
+      {/* 4. MODO LISTA (Agenda Compacta) */}
       {viewMode === 'lista' && (
         <div className="bg-white rounded-3xl border border-zinc-200/80 shadow-xs p-6 space-y-4">
           <h3 className="font-serif font-bold text-base text-pastoral-cafe">
-            Agenda do Ano {currentYear} ({filteredEvents.length} eventos)
+            Agenda do Ano {currentYear} ({filteredEvents.length} atividades encontradas)
           </h3>
 
           {filteredEvents.length === 0 ? (
             <p className="text-xs text-zinc-400 py-8 text-center">
-              Nenhum evento encontrado para os filtros selecionados.
+              Nenhuma atividade encontrada para os filtros selecionados.
             </p>
           ) : (
             <div className="space-y-3">
@@ -632,26 +731,41 @@ export const Calendario2027View: React.FC = () => {
                 return (
                   <div
                     key={ev.id}
-                    className="p-4 rounded-2xl border border-zinc-200/80 hover:border-pastoral-dourado/50 bg-zinc-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition-colors"
+                    onClick={() => setSelectedEvent(ev)}
+                    className="p-4 rounded-2xl border border-zinc-200/80 hover:border-pastoral-dourado/60 bg-zinc-50/50 hover:bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition-all cursor-pointer shadow-2xs"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${color.bg} ${color.text}`}>
-                          {ev.category}
+                    <div className="space-y-1 max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            ev.is_holiday
+                              ? 'bg-slate-200 text-slate-800'
+                              : ev.is_birthday
+                              ? 'bg-amber-100 text-amber-900'
+                              : `${color.bg} ${color.text}`
+                          }`}
+                        >
+                          {ev.is_holiday ? 'Feriado / Comemoração' : ev.is_birthday ? 'Aniversário' : ev.category}
                         </span>
+
                         <span className="text-xs font-bold text-pastoral-vinho">
-                          {ev.event_date.split('-').reverse().join('/')}
-                          {ev.event_time ? ` às ${ev.event_time}` : ''}
+                          {ev.end_date && ev.end_date !== ev.event_date
+                            ? `${ev.event_date.split('-').reverse().join('/')} a ${ev.end_date.split('-').reverse().join('/')}`
+                            : ev.event_date.split('-').reverse().join('/')}
+                          {ev.event_time && ev.event_time !== '00:00' ? ` às ${ev.event_time}` : ''}
                         </span>
                       </div>
+
                       <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
                         {ev.title}
                       </h4>
+
                       {ev.description && (
-                        <p className="text-xs text-zinc-600 leading-relaxed max-w-2xl">
+                        <p className="text-xs text-zinc-600 leading-relaxed line-clamp-2">
                           {ev.description}
                         </p>
                       )}
+
                       {ev.location && (
                         <div className="flex items-center gap-1 text-[11px] text-zinc-500">
                           <MapPin className="w-3.5 h-3.5 text-zinc-400" />
@@ -660,9 +774,29 @@ export const Calendario2027View: React.FC = () => {
                       )}
                     </div>
 
-                    <span className="text-xs font-semibold px-3 py-1 rounded-full bg-pastoral-creme text-pastoral-cafe border border-pastoral-dourado/30 self-start sm:self-center">
-                      {ev.status}
-                    </span>
+                    <div className="flex items-center gap-2 self-start sm:self-center">
+                      <span
+                        className={`text-xs font-semibold px-3 py-1 rounded-full border ${
+                          ev.status === 'Cancelado'
+                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                            : 'bg-pastoral-creme text-pastoral-cafe border-pastoral-dourado/30'
+                        }`}
+                      >
+                        {ev.status}
+                      </span>
+                      {canEdit && !ev.is_holiday && !ev.is_birthday && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditModal(ev);
+                          }}
+                          className="p-1.5 rounded-lg text-zinc-500 hover:text-pastoral-cafe hover:bg-zinc-100"
+                          title="Editar evento"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -671,7 +805,7 @@ export const Calendario2027View: React.FC = () => {
         </div>
       )}
 
-      {/* 3. MODO ANO (12 Miniaturas de Grade) */}
+      {/* 5. MODO ANO (12 Miniaturas de Grade) */}
       {viewMode === 'ano' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {MONTH_NAMES.map((mName, mIdx) => {
@@ -693,10 +827,7 @@ export const Calendario2027View: React.FC = () => {
                     {mName}
                   </h4>
                   <span className="text-[10px] text-pastoral-dourado font-bold">
-                    {
-                      filteredEvents.filter((e) => e.event_date.slice(5, 7) === mStr).length
-                    }{' '}
-                    datas
+                    {filteredEvents.filter((e) => e.event_date.slice(5, 7) === mStr).length} datas
                   </span>
                 </div>
 
@@ -736,14 +867,14 @@ export const Calendario2027View: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Detalhes do Dia Selecionado */}
+      {/* MODAL 1: Detalhes do Dia Selecionado */}
       {selectedDateStr && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-pastoral-dourado">
-                  Eventos do Dia
+                  Atividades do Dia
                 </span>
                 <h3 className="font-serif font-bold text-lg text-pastoral-cafe">
                   {selectedDateStr.split('-').reverse().join('/')}
@@ -759,7 +890,7 @@ export const Calendario2027View: React.FC = () => {
 
             {selectedDayEvents.length === 0 ? (
               <div className="py-6 text-center text-zinc-500 text-xs space-y-2">
-                <p>Nenhum evento registrado nesta data.</p>
+                <p>Nenhuma atividade registrada nesta data.</p>
                 {canEdit && (
                   <button
                     onClick={() => openNewEventForDate(selectedDateStr)}
@@ -774,6 +905,7 @@ export const Calendario2027View: React.FC = () => {
               <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                 {selectedDayEvents.map((ev) => {
                   const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
+
                   if (ev.is_birthday) {
                     return (
                       <div
@@ -794,14 +926,15 @@ export const Calendario2027View: React.FC = () => {
                         </h4>
 
                         <p className="text-xs text-amber-900/80 leading-relaxed">
-                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
+                          {ev.description || 'Comemoração fraterna da vocação e vida missionária.'}
                         </p>
 
                         <div className="pt-2">
                           <button
                             type="button"
                             onClick={() => {
-                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
+                              const nameResp = ev.responsibles?.[0] || 'irmão(ã)';
+                              const msg = `Parabéns, ${nameResp}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
                               navigator.clipboard.writeText(msg);
                               setFeedback('Mensagem de felicitações copiada para a área de transferência!');
                               setTimeout(() => setFeedback(''), 4000);
@@ -815,6 +948,27 @@ export const Calendario2027View: React.FC = () => {
                     );
                   }
 
+                  if (ev.is_holiday) {
+                    return (
+                      <div
+                        key={ev.id}
+                        className="p-4 rounded-2xl border border-slate-300 bg-slate-50 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-800 border border-slate-300">
+                            🏛️ {ev.notes || 'Feriado Oficial'}
+                          </span>
+                        </div>
+                        <h4 className="font-serif font-bold text-sm text-slate-900">
+                          {ev.title}
+                        </h4>
+                        <p className="text-xs text-slate-700 leading-relaxed">
+                          {ev.description}
+                        </p>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={ev.id}
@@ -824,14 +978,31 @@ export const Calendario2027View: React.FC = () => {
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${color.bg} ${color.text}`}>
                           {ev.category}
                         </span>
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-pastoral-creme text-pastoral-cafe border border-pastoral-dourado/30">
-                          {ev.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-pastoral-creme text-pastoral-cafe border border-pastoral-dourado/30">
+                            {ev.status}
+                          </span>
+                          {canEdit && (
+                            <button
+                              onClick={() => openEditModal(ev)}
+                              className="p-1 rounded-lg text-zinc-500 hover:text-pastoral-cafe hover:bg-zinc-200"
+                              title="Editar evento"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
                         {ev.title}
                       </h4>
+
+                      {ev.end_date && ev.end_date !== ev.event_date && (
+                        <p className="text-xs font-semibold text-pastoral-vinho">
+                          Período: {ev.event_date.split('-').reverse().join('/')} até {ev.end_date.split('-').reverse().join('/')}
+                        </p>
+                      )}
 
                       {ev.description && (
                         <p className="text-xs text-zinc-600 leading-relaxed whitespace-pre-line">
@@ -880,7 +1051,288 @@ export const Calendario2027View: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Criação de Novo Evento */}
+      {/* MODAL 2: Visualização de Detalhes de um Evento */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                    selectedEvent.is_holiday
+                      ? 'bg-slate-200 text-slate-800'
+                      : selectedEvent.is_birthday
+                      ? 'bg-amber-100 text-amber-900'
+                      : 'bg-pastoral-creme text-pastoral-cafe border border-pastoral-dourado/30'
+                  }`}
+                >
+                  {selectedEvent.is_holiday
+                    ? 'Feriado Oficial'
+                    : selectedEvent.is_birthday
+                    ? 'Aniversário'
+                    : selectedEvent.category}
+                </span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
+                  {selectedEvent.status}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="font-serif font-bold text-lg text-pastoral-cafe">
+                {selectedEvent.title}
+              </h3>
+
+              <div className="grid grid-cols-2 gap-2 text-xs bg-zinc-50 p-3 rounded-2xl border border-zinc-200">
+                <div>
+                  <span className="block text-[10px] font-bold text-zinc-400 uppercase">
+                    {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.event_date ? 'Período' : 'Data'}
+                  </span>
+                  <span className="font-semibold text-zinc-800">
+                    {selectedEvent.end_date && selectedEvent.end_date !== selectedEvent.event_date
+                      ? `${selectedEvent.event_date.split('-').reverse().join('/')} a ${selectedEvent.end_date.split('-').reverse().join('/')}`
+                      : selectedEvent.event_date.split('-').reverse().join('/')}
+                  </span>
+                </div>
+                {selectedEvent.event_time && selectedEvent.event_time !== '00:00' && (
+                  <div>
+                    <span className="block text-[10px] font-bold text-zinc-400 uppercase">Horário</span>
+                    <span className="font-semibold text-zinc-800">{selectedEvent.event_time}</span>
+                  </div>
+                )}
+                {selectedEvent.location && (
+                  <div className="col-span-2">
+                    <span className="block text-[10px] font-bold text-zinc-400 uppercase">Local</span>
+                    <span className="font-semibold text-zinc-800">{selectedEvent.location}</span>
+                  </div>
+                )}
+              </div>
+
+              {selectedEvent.description && (
+                <div>
+                  <span className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">
+                    Descrição Completa / Pauta
+                  </span>
+                  <div className="text-xs text-zinc-700 leading-relaxed bg-pastoral-creme/20 p-3.5 rounded-2xl border border-pastoral-dourado/20 max-h-60 overflow-y-auto whitespace-pre-wrap">
+                    {selectedEvent.description}
+                  </div>
+                </div>
+              )}
+
+              {selectedEvent.responsibles && selectedEvent.responsibles.length > 0 && (
+                <div className="text-[11px] text-zinc-500">
+                  <span className="font-bold">Responsáveis: </span>
+                  <span>{selectedEvent.responsibles.join(', ')}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+              {canEdit && !selectedEvent.is_holiday && !selectedEvent.is_birthday ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditModal(selectedEvent)}
+                    className="px-3.5 py-2 rounded-xl bg-pastoral-dourado text-pastoral-profundo font-bold text-xs hover:brightness-105 flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Editar Evento</span>
+                  </button>
+                  {selectedEvent.status !== 'Cancelado' && (
+                    <button
+                      onClick={() => handleCancelEvent(selectedEvent)}
+                      className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs border border-rose-200 transition-colors"
+                    >
+                      Cancelar Evento
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div />
+              )}
+
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-xs"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Edição Completa de Evento */}
+      {editingEvent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-pastoral-dourado" />
+                <span>Editar Evento</span>
+              </h3>
+              <button
+                onClick={() => setEditingEvent(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateEvent} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Título do Evento *
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 focus:ring-1 focus:ring-pastoral-dourado"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Data de Início *
+                  </label>
+                  <input
+                    type="date"
+                    value={editEventDate}
+                    onChange={(e) => setEditEventDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Data de Término (Multidias)
+                  </label>
+                  <input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    placeholder="Opcional"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Horário
+                  </label>
+                  <input
+                    type="text"
+                    value={editEventTime}
+                    onChange={(e) => setEditEventTime(e.target.value)}
+                    placeholder="Ex: 19h30"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Planejado">Planejado</option>
+                    <option value="A confirmar">A confirmar</option>
+                    <option value="Cancelado">Cancelado</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Categoria
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    {CATEGORIES.filter((c) => c !== 'Todas').map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Local
+                  </label>
+                  <input
+                    type="text"
+                    value={editLocation}
+                    onChange={(e) => setEditLocation(e.target.value)}
+                    placeholder="Ex: Paróquia São Vicente"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Descrição Completa
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteEvent(editingEvent)}
+                  className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Excluir permanentemente"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingEvent(null)}
+                    className="px-4 py-2 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 shadow-xs"
+                  >
+                    Salvar Alterações
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Criação de Novo Evento */}
       {isNewOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
@@ -903,10 +1355,10 @@ export const Calendario2027View: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Ex: Reunião Geral de Oração"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 focus:ring-1 focus:ring-pastoral-dourado"
                   required
                 />
               </div>
@@ -914,12 +1366,12 @@ export const Calendario2027View: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
-                    Data *
+                    Data de Início *
                   </label>
                   <input
                     type="date"
-                    value={eventDate}
-                    onChange={(e) => setEventDate(e.target.value)}
+                    value={newEventDate}
+                    onChange={(e) => setNewEventDate(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
                     required
                   />
@@ -927,15 +1379,46 @@ export const Calendario2027View: React.FC = () => {
 
                 <div>
                   <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Data de Término (Multidias)
+                  </label>
+                  <input
+                    type="date"
+                    value={newEndDate}
+                    onChange={(e) => setNewEndDate(e.target.value)}
+                    placeholder="Opcional"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
                     Horário (Opcional)
                   </label>
                   <input
                     type="text"
-                    value={eventTime}
-                    onChange={(e) => setEventTime(e.target.value)}
+                    value={newEventTime}
+                    onChange={(e) => setNewEventTime(e.target.value)}
                     placeholder="Ex: 19h30"
                     className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={newStatus}
+                    onChange={(e) => setNewStatus(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="Planejado">Planejado</option>
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="A confirmar">A confirmar</option>
+                    <option value="Cancelado">Cancelado</option>
+                  </select>
                 </div>
               </div>
 
@@ -945,8 +1428,8 @@ export const Calendario2027View: React.FC = () => {
                     Categoria
                   </label>
                   <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
                   >
                     {CATEGORIES.filter((c) => c !== 'Todas').map((cat) => (
@@ -959,32 +1442,16 @@ export const Calendario2027View: React.FC = () => {
 
                 <div>
                   <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
-                    Status
+                    Local (Opcional)
                   </label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
-                  >
-                    <option value="Planejado">Planejado</option>
-                    <option value="Confirmado">Confirmado</option>
-                    <option value="A confirmar">A confirmar</option>
-                    <option value="Cancelado">Cancelado</option>
-                  </select>
+                  <input
+                    type="text"
+                    value={newLocation}
+                    onChange={(e) => setNewLocation(e.target.value)}
+                    placeholder="Ex: Salão Paroquial São Vicente de Paulo"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
-                  Local (Opcional)
-                </label>
-                <input
-                  type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Ex: Salão Paroquial São Vicente de Paulo"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
-                />
               </div>
 
               <div>
@@ -992,10 +1459,10 @@ export const Calendario2027View: React.FC = () => {
                   Descrição / Orientações
                 </label>
                 <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
                   placeholder="Informações sobre pauta, materiais, vestimenta ou objetivo..."
-                  rows={2}
+                  rows={3}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
                 />
               </div>

@@ -158,13 +158,24 @@ membersRouter.put('/:id', authenticateToken, requireRole(['admin', 'coordenador'
     id
   );
 
+  // Synchronize pastoral_members if linked
+  if (name && name.trim()) {
+    try {
+      db.prepare(`
+        UPDATE pastoral_members
+        SET name = ?, updated_at = ?
+        WHERE buyer_member_id = ?
+      `).run(name.trim(), now, id);
+    } catch {}
+  }
+
   googleSheetsService.enqueueJob('member', id, 'update', { name });
 
   return res.json({ message: 'Membro atualizado com sucesso.' });
 });
 
 // DELETE /api/members/:id (Soft-deactivate)
-membersRouter.delete('/:id', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+membersRouter.delete('/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
 
   const existing = db.prepare('SELECT * FROM members WHERE id = ?').get(id) as any;

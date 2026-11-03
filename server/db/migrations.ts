@@ -747,6 +747,161 @@ export function runMigrations() {
     console.log('✓ Migração 004_master_4_0_ecosystem_evolution aplicada com sucesso.');
   }
 
+  // Migration 005: Master 5.0 - Data Protection, Official Member Names, Rich Event Descriptions, Multi-Day December Retreats & Lab Draw Structure Normalization
+  if (!applied.has('005_master_5_0_data_protection_and_calendar_evolution')) {
+    const migrate005 = db.transaction(() => {
+      // 1. Add end_date to calendar_events if not present
+      const calCols = db.prepare(`PRAGMA table_info(calendar_events)`).all() as any[];
+      if (!calCols.some((c) => c.name === 'end_date')) {
+        db.exec(`ALTER TABLE calendar_events ADD COLUMN end_date TEXT`);
+        console.log('✓ Coluna end_date adicionada à tabela calendar_events.');
+      }
+
+      // 2. Synchronize and permanently protect official member names in both members and pastoral_members
+      const officialNameUpdates = [
+        { buyerId: 'mem_22130dccbf2c', pmemId: 'pmem_mem_22130dccbf2c', name: 'Maria Eduarda Fernandes', displayName: 'Duda Fernandes' },
+        { buyerId: 'mem_723733f98bb6', pmemId: 'pmem_mem_723733f98bb6', name: 'Maria Eduarda Soares', displayName: 'Duda Soares' },
+        { buyerId: 'mem_aeedddfde4d8', pmemId: 'pmem_mem_aeedddfde4d8', name: 'Maria Luiza Neres', displayName: 'Malu Neres' },
+        { buyerId: 'mem_cd7f61cc211e', pmemId: 'pmem_mem_cd7f61cc211e', name: 'Júlia Viana', displayName: 'Júlia' },
+        { buyerId: 'mem_e8ca36ae2233', pmemId: 'pmem_mem_e8ca36ae2233', name: 'Letícia Ingrid', displayName: 'Letícia' },
+        { buyerId: 'mem_2a2e78c53bf9', pmemId: 'pmem_mem_2a2e78c53bf9', name: 'Tiago', displayName: 'Tiago' },
+      ];
+
+      for (const item of officialNameUpdates) {
+        db.prepare(`
+          UPDATE members SET name = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?
+        `).run(item.name, item.displayName, item.buyerId);
+
+        db.prepare(`
+          UPDATE pastoral_members SET name = ?, display_name = ?, updated_at = datetime('now') WHERE id = ? OR buyer_member_id = ?
+        `).run(item.name, item.displayName, item.pmemId, item.buyerId);
+      }
+
+      // 3. Restore rich descriptions for November 2026 formation events (Sections 6.1 & 6.2)
+      const descFormacao1 = `Tema proposto: Ser missionário — chamado, espiritualidade e compromisso.\n\nAbordar a finalidade da Pastoral Missionária; o discípulo que também é enviado; oração e vida sacramental; Padre Pio como referência espiritual; serviço, responsabilidade, trabalho em equipe e comunhão com a coordenação e a paróquia.`;
+
+      const descFormacao2 = `Tema proposto: Como preparar e conduzir uma evangelização.\n\nAbordar a preparação de pregações e testemunhos; leitura da passagem bíblica em seu contexto; definição de uma mensagem central; começo, desenvolvimento e conclusão; linguagem e tempo; condução de oração; respeito e escuta do público.\n\nExercício sugerido: organizar uma breve mensagem a partir de uma passagem bíblica.`;
+
+      db.prepare(`
+        UPDATE calendar_events
+        SET title = '1ª Formação (Novos Membros)',
+            description = ?,
+            category = 'Formações',
+            status = 'Confirmado',
+            updated_at = datetime('now')
+        WHERE event_date = '2026-11-14'
+      `).run(descFormacao1);
+
+      db.prepare(`
+        UPDATE calendar_events
+        SET title = '2ª Formação (Novos Membros)',
+            description = ?,
+            category = 'Formações',
+            status = 'Confirmado',
+            updated_at = datetime('now')
+        WHERE event_date = '2026-11-22'
+      `).run(descFormacao2);
+
+      // 4. Recover December 2026 Events (Section 7)
+      // 7.1 Pré-Espiritual: 13/12/2026
+      const existingPreEspiritual = db.prepare(`SELECT id FROM calendar_events WHERE event_date = '2026-12-13'`).get();
+      if (!existingPreEspiritual) {
+        db.prepare(`
+          INSERT INTO calendar_events (
+            id, external_stable_id, title, description, event_date, end_date, category, status, visibility, responsibles_json, notes, source, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, NULL, 'Retiros', 'Confirmado', 'publico', ?, ?, 'Manual', datetime('now'), datetime('now'))
+        `).run(
+          'cal_2026_12_13_pre_espiritual',
+          'cal_2026_12_13_pre_espiritual',
+          'Pré-Espiritual',
+          'Encontro preparatório para o retiro espiritual de discipulado da Pastoral Missionária.',
+          '2026-12-13',
+          JSON.stringify(['Pedro', 'Fernanda']),
+          'Preparação e alinhamento para o retiro'
+        );
+      }
+
+      // 7.2 Espiritual (Discipulado): 18 a 20 de dezembro de 2026 (multi-day span)
+      const existingEspiritual = db.prepare(`SELECT id FROM calendar_events WHERE event_date = '2026-12-18'`).get();
+      if (!existingEspiritual) {
+        db.prepare(`
+          INSERT INTO calendar_events (
+            id, external_stable_id, title, description, event_date, end_date, category, status, visibility, responsibles_json, notes, source, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'Retiros', 'Confirmado', 'publico', ?, ?, 'Manual', datetime('now'), datetime('now'))
+        `).run(
+          'cal_2026_12_18_espiritual_discipulado',
+          'cal_2026_12_18_espiritual_discipulado',
+          'Espiritual (Discipulado)',
+          'Retiro Espiritual de Discipulado da Pastoral Missionária — 18, 19 e 20 de dezembro de 2026.',
+          '2026-12-18',
+          '2026-12-20',
+          JSON.stringify(['Pedro', 'Fernanda']),
+          'Retiro de imersão espiritual e vida de oração'
+        );
+      } else {
+        db.prepare(`
+          UPDATE calendar_events
+          SET title = 'Espiritual (Discipulado)',
+              end_date = '2026-12-20',
+              category = 'Retiros',
+              status = 'Confirmado',
+              description = 'Retiro Espiritual de Discipulado da Pastoral Missionária — 18, 19 e 20 de dezembro de 2026.',
+              updated_at = datetime('now')
+          WHERE event_date = '2026-12-18'
+        `).run();
+      }
+
+      // 5. Normalize historical lab draw (draw_historico_18_part) so groups have both 'speakers' and 'members'
+      const histDraw = db.prepare(`SELECT * FROM lab_draws WHERE id = 'draw_historico_18_part'`).get() as any;
+      if (histDraw) {
+        const parsedGroups = JSON.parse(histDraw.groups_json || '[]');
+        const normalizedGroups = parsedGroups.map((g: any, gIdx: number) => {
+          const list = g.speakers || g.members || [];
+          const normalizedSpeakers = list.map((m: any, mIdx: number) => ({
+            order: m.order || m.presentation_order || (mIdx + 1),
+            speaker_name: m.speaker_name,
+            speaker_id: m.speaker_id,
+            theme_number: m.theme_number,
+            theme_title: m.theme_title,
+            duration_minutes: m.duration_minutes || 20,
+            group_number: g.group_number || (gIdx + 1),
+          }));
+          return {
+            group_number: g.group_number || (gIdx + 1),
+            group_name: g.group_name || `Grupo ${g.group_number || (gIdx + 1)}`,
+            speakers_count: normalizedSpeakers.length,
+            duration_per_speaker_minutes: 20,
+            total_duration_minutes: g.duration_minutes || (normalizedSpeakers.length * 20),
+            speakers: normalizedSpeakers,
+            members: normalizedSpeakers,
+          };
+        });
+
+        db.prepare(`
+          UPDATE lab_draws SET groups_json = ?, updated_at = datetime('now') WHERE id = 'draw_historico_18_part'
+        `).run(JSON.stringify(normalizedGroups));
+      }
+
+      // 6. Ensure Pix Key is verified and consistent
+      const pixObj = {
+        pix_key: '(61)992568165',
+        key_type: 'telefone',
+        receiver_name: 'Pastoral Missionária — Paróquia São Vicente de Paulo',
+        instructions: 'Após realizar o Pix, envie o comprovante para a coordenação (Pedro ou Fernanda) registrar a baixa do seu pedido.',
+      };
+      db.prepare(`INSERT OR REPLACE INTO integration_settings (key, value_json, updated_at) VALUES ('pix_payment', ?, datetime('now'))`).run(JSON.stringify(pixObj));
+
+      // 7. Register migration 005
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('005_master_5_0_data_protection_and_calendar_evolution', 'Proteção Permanente de Dados, Nomes Oficiais, Descrições das Formações, Espiritual Dezembro e Normalização de Grupos', datetime('now'))
+      `).run();
+    });
+
+    migrate005();
+    console.log('✓ Migração 005_master_5_0_data_protection_and_calendar_evolution aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
@@ -803,19 +958,22 @@ export function seedEcosystemData() {
       now
     );
 
-    const existingBuyerMembers = db.prepare('SELECT * FROM members').all() as any[];
-    for (const bm of existingBuyerMembers) {
-      insertPastoralMember.run(
-        `pmem_${bm.id}`,
-        bm.id,
-        bm.name,
-        bm.display_name,
-        'membro',
-        JSON.stringify(['Intercessão', 'Apoio']),
-        JSON.stringify(['Intercessão', 'Evangelização']),
-        bm.created_at || now,
-        now
-      );
+    const existingPastoralCount = (db.prepare('SELECT COUNT(*) as c FROM pastoral_members').get() as { c: number }).c;
+    if (existingPastoralCount <= 2) {
+      const existingBuyerMembers = db.prepare('SELECT * FROM members').all() as any[];
+      for (const bm of existingBuyerMembers) {
+        insertPastoralMember.run(
+          `pmem_${bm.id}`,
+          bm.id,
+          bm.name,
+          bm.display_name,
+          'membro',
+          JSON.stringify(['Intercessão', 'Apoio']),
+          JSON.stringify(['Intercessão', 'Evangelização']),
+          bm.created_at || now,
+          now
+        );
+      }
     }
 
     // 3. Seed 26 Official Events from PDF Calendar 2027

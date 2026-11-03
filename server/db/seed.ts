@@ -9,16 +9,16 @@ interface InitialOrderItem {
 }
 
 const INITIAL_MEMBERS_ORDERS: InitialOrderItem[] = [
-  { name: 'Duda Fernandes', model: 'Baby look', size: 'G' },
+  { name: 'Maria Eduarda Fernandes', model: 'Baby look', size: 'G' },
   { name: 'Lyvia', model: 'Baby look', size: 'M' },
   { name: 'Állan', model: 'Tradicional', size: 'G' },
   { name: 'Jamilly', model: 'Baby look', size: 'M' },
   { name: 'Vini', model: 'Tradicional', size: 'G' },
   { name: 'Laysa', model: 'Baby look', size: 'M' },
   { name: 'Victor', model: 'Tradicional', size: 'GG' },
-  { name: 'Malu Neres', model: 'Baby look', size: 'M' },
-  { name: 'Júlia', model: 'Baby look', size: 'G' },
-  { name: 'Leticia', model: 'Baby look', size: 'M' },
+  { name: 'Maria Luiza Neres', model: 'Baby look', size: 'M' },
+  { name: 'Júlia Viana', model: 'Baby look', size: 'G' },
+  { name: 'Letícia Ingrid', model: 'Baby look', size: 'M' },
   { name: 'Saulo', model: 'Tradicional', size: 'G' },
   { name: 'Manuella', model: 'Baby look', size: 'M' },
   { name: 'Maria Júlia', model: 'Baby look', size: 'M' },
@@ -27,7 +27,7 @@ const INITIAL_MEMBERS_ORDERS: InitialOrderItem[] = [
   { name: 'Erick Kilbert', model: 'Tradicional', size: 'G' },
   { name: 'Alfredo', model: 'Tradicional', size: 'GG' },
   { name: 'Tiago', model: 'Tradicional', size: 'G' },
-  { name: 'Duda Soares', model: 'Baby look', size: 'M' },
+  { name: 'Maria Eduarda Soares', model: 'Baby look', size: 'M' },
 ];
 
 export function seedDatabase() {
@@ -95,8 +95,19 @@ export function seedDatabase() {
       patron: 'São Padre Pio de Pietrelcina',
       quote_1: 'Uma só coisa é necessária: Estar perto de Jesus.',
       quote_2: 'Tenha Jesus Cristo em seu coração, e todas as cruzes do mundo parecerão rosas.',
-      pix_key: 'pastoralmissionaria@agape.org.br',
+      pix_key: '(61)992568165',
       instagram: '@pastoralmissionaria_',
+    }),
+    now
+  );
+
+  insertSetting.run(
+    'pix_payment',
+    JSON.stringify({
+      pix_key: '(61)992568165',
+      key_type: 'telefone',
+      receiver_name: 'Pastoral Missionária — Paróquia São Vicente de Paulo',
+      instructions: 'Após realizar o Pix, envie o comprovante para a coordenação (Pedro ou Fernanda) registrar a baixa do seu pedido.',
     }),
     now
   );
@@ -142,7 +153,13 @@ export function seedDatabase() {
     console.log('✓ Campanha inicial criada:', campaignName);
   }
 
-  // 4. Seed 19 Members and Orders (idempotent: based on member name + campaign)
+  // 4. Seed 19 Members and Orders (idempotent: strictly guards existing orders)
+  const existingOrdersCount = (db.prepare("SELECT COUNT(*) as c FROM orders WHERE campaign_id = ? AND status != 'cancelado'").get(campaign.id) as any).c;
+  if (existingOrdersCount >= 19) {
+    console.log('✓ Banco de dados já possui todos os 19 registros iniciais. Nenhuma duplicação realizada.');
+    return;
+  }
+
   const findMember = db.prepare('SELECT id FROM members WHERE name = ?');
   const insertMember = db.prepare(`
     INSERT INTO members (id, name, display_name, phone, notes, active, created_at, updated_at)

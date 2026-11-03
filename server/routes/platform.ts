@@ -4,6 +4,7 @@ import { db } from '../db/database.js';
 import { authenticateToken, requireRole, AuthenticatedRequest } from './auth.js';
 import { CALENDAR_2027_SEED, seedEcosystemData } from '../db/migrations.js';
 import { createDatabaseBackup } from '../db/backup.js';
+import { getHolidaysForYear } from '../services/holidaysService.js';
 
 export const platformRouter = Router();
 
@@ -106,7 +107,7 @@ platformRouter.get('/overview', authenticateToken, (_req: AuthenticatedRequest, 
 
 // 3. CALENDAR ROUTES (/api/platform/calendar)
 platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { category, month, status, year, include_birthdays = 'true' } = req.query;
+  const { category, month, status, year, include_birthdays = 'true', include_holidays = 'false' } = req.query;
   let sql = 'SELECT * FROM calendar_events WHERE 1=1';
   const params: any[] = [];
 
@@ -133,6 +134,7 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
     responsibles: JSON.parse(ev.responsibles_json || '[]'),
     materials: JSON.parse(ev.materials_json || '[]'),
     is_birthday: false,
+    is_holiday: false,
   }));
 
   const allowBirthdays =
@@ -143,7 +145,7 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
   let birthdayEvents: any[] = [];
   if (allowBirthdays) {
     const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
-    const targetYears = year && typeof year === 'string' && year.length === 4 ? [Number(year)] : [2026, 2027];
+    const targetYears = year && typeof year === 'string' && year.length === 4 ? [Number(year)] : [2025, 2026, 2027, 2028];
 
     const membersWithBday = db.prepare(`
       SELECT id, name, display_name, pastoral_role, status, email, birth_day, birth_month, birth_year, birthday_visibility, created_at, updated_at
@@ -164,6 +166,7 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
           title: `🎂 Aniversário: ${m.display_name}`,
           description: `Comemoração fraterna do aniversário de ${m.name} (${m.pastoral_role}).`,
           event_date: dateStr,
+          end_date: null,
           event_time: '00:00',
           location: 'Pastoral Missionária',
           category: 'Outros',
@@ -174,6 +177,7 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
           notes: 'Aniversariante da Pastoral Missionária.',
           source: 'Aniversários dos Missionários',
           is_birthday: true,
+          is_holiday: false,
           member_id: m.id,
           birth_year: m.birth_year || null,
           created_at: m.created_at || new Date().toISOString(),
@@ -183,12 +187,52 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
     }
   }
 
-  const allEvents = [...dbEvents, ...birthdayEvents].sort((a, b) => a.event_date.localeCompare(b.event_date));
+  let holidayEvents: any[] = [];
+  if (include_holidays === 'true' && (!category || category === 'Todas' || category === 'Feriados')) {
+    const targetYears = year && typeof year === 'string' && year.length === 4 ? [Number(year)] : [2025, 2026, 2027, 2028];
+    for (const y of targetYears) {
+      const hList = getHolidaysForYear(y);
+      for (const h of hList) {
+        if (month && typeof month === 'string' && h.date.slice(5, 7) !== month) continue;
+        holidayEvents.push({
+          id: h.id,
+          external_stable_id: h.id,
+          title: `🏛️ ${h.name}`,
+          description: `${h.type_label}: ${h.description}`,
+          event_date: h.date,
+          end_date: null,
+          event_time: '00:00',
+          location: 'Brasília / Planaltina-DF',
+          category: 'Feriados',
+          status: 'Confirmado',
+          visibility: 'publico',
+          responsibles: ['GDF / Brasil'],
+          materials: [],
+          notes: h.type_label,
+          source: 'Feriados Oficiais e Comemorativos',
+          is_birthday: false,
+          is_holiday: true,
+          holiday_type: h.type,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const allEvents = [...dbEvents, ...birthdayEvents, ...holidayEvents].sort((a, b) => a.event_date.localeCompare(b.event_date));
   return res.json(allEvents);
 });
 
+// GET /api/platform/calendar/holidays (Consulta de Feriados Oficiais por Ano)
+platformRouter.get('/calendar/holidays', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const yearQuery = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+  const holidays = getHolidaysForYear(yearQuery);
+  return res.json(holidays);
+});
+
 platformRouter.post('/calendar', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, event_date, event_time, location, category, status, visibility, responsibles, notes } = req.body;
+  const { title, description, event_date, end_date, event_time, location, category, status, visibility, responsibles, notes } = req.body;
 
   if (!title || !event_date || !category) {
     return res.status(400).json({ error: 'Título, data e categoria são obrigatórios.' });
@@ -199,15 +243,16 @@ platformRouter.post('/calendar', authenticateToken, requireRole(['admin', 'coord
 
   db.prepare(`
     INSERT INTO calendar_events (
-      id, external_stable_id, title, description, event_date, event_time, location,
+      id, external_stable_id, title, description, event_date, end_date, event_time, location,
       category, status, visibility, responsibles_json, notes, source, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Coordenação', ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Coordenação', ?, ?)
   `).run(
     id,
     id,
     title.trim(),
     description?.trim() || '',
     event_date,
+    end_date ? end_date.trim() : null,
     event_time?.trim() || null,
     location?.trim() || null,
     category,
@@ -222,54 +267,207 @@ platformRouter.post('/calendar', authenticateToken, requireRole(['admin', 'coord
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'CREATE_CALENDAR_EVENT', 'calendar_event', ?, ?, ?)
-  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ title, event_date, category }), now);
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ title, event_date, end_date, category }), now);
 
   return res.status(201).json({ id, message: 'Evento adicionado ao calendário com sucesso.' });
 });
 
+// PUT /api/platform/calendar/:id (Edição Completa ou Parcial de Evento Preservando Campos Não Informados)
 platformRouter.put('/calendar/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const { title, description, event_date, event_time, location, category, status, notes } = req.body;
-  const now = new Date().toISOString();
-
-  const existing = db.prepare('SELECT id FROM calendar_events WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id) as any;
   if (!existing) {
     return res.status(404).json({ error: 'Evento não encontrado.' });
   }
 
+  const { title, description, event_date, end_date, event_time, location, category, status, notes, visibility, responsibles } = req.body;
+  const now = new Date().toISOString();
+
+  const updatedTitle = title !== undefined ? title.trim() : existing.title;
+  const updatedDescription = description !== undefined ? description.trim() : existing.description;
+  const updatedEventDate = event_date !== undefined ? event_date : existing.event_date;
+  const updatedEndDate = end_date !== undefined ? (end_date ? end_date.trim() : null) : existing.end_date;
+  const updatedEventTime = event_time !== undefined ? (event_time ? event_time.trim() : null) : existing.event_time;
+  const updatedLocation = location !== undefined ? (location ? location.trim() : null) : existing.location;
+  const updatedCategory = category !== undefined ? category : existing.category;
+  const updatedStatus = status !== undefined ? status : existing.status;
+  const updatedNotes = notes !== undefined ? (notes ? notes.trim() : '') : existing.notes;
+  const updatedVisibility = visibility !== undefined ? visibility : existing.visibility;
+  const updatedResponsibles = responsibles !== undefined
+    ? JSON.stringify(Array.isArray(responsibles) ? responsibles : [responsibles])
+    : (existing.responsibles_json || '[]');
+
   db.prepare(`
     UPDATE calendar_events
-    SET title = COALESCE(?, title),
-        description = COALESCE(?, description),
-        event_date = COALESCE(?, event_date),
+    SET title = ?,
+        description = ?,
+        event_date = ?,
+        end_date = ?,
         event_time = ?,
         location = ?,
-        category = COALESCE(?, category),
-        status = COALESCE(?, status),
-        notes = COALESCE(?, notes),
+        category = ?,
+        status = ?,
+        notes = ?,
+        visibility = ?,
+        responsibles_json = ?,
         updated_at = ?
     WHERE id = ?
   `).run(
-    title?.trim(),
-    description?.trim(),
-    event_date,
-    event_time || null,
-    location || null,
-    category,
-    status,
-    notes?.trim(),
+    updatedTitle,
+    updatedDescription,
+    updatedEventDate,
+    updatedEndDate,
+    updatedEventTime,
+    updatedLocation,
+    updatedCategory,
+    updatedStatus,
+    updatedNotes,
+    updatedVisibility,
+    updatedResponsibles,
     now,
     id
   );
 
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'UPDATE_CALENDAR_EVENT', 'calendar_event', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ before: existing, after: req.body }), now);
+
   return res.json({ message: 'Evento atualizado com sucesso.' });
 });
 
+// PATCH /api/platform/calendar/:id (Alias idempotente para atualização parcial)
+platformRouter.patch('/calendar/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const existing = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Evento não encontrado.' });
+  }
+
+  const { title, description, event_date, end_date, event_time, location, category, status, notes, visibility, responsibles } = req.body;
+  const now = new Date().toISOString();
+
+  const updatedTitle = title !== undefined ? title.trim() : existing.title;
+  const updatedDescription = description !== undefined ? description.trim() : existing.description;
+  const updatedEventDate = event_date !== undefined ? event_date : existing.event_date;
+  const updatedEndDate = end_date !== undefined ? (end_date ? end_date.trim() : null) : existing.end_date;
+  const updatedEventTime = event_time !== undefined ? (event_time ? event_time.trim() : null) : existing.event_time;
+  const updatedLocation = location !== undefined ? (location ? location.trim() : null) : existing.location;
+  const updatedCategory = category !== undefined ? category : existing.category;
+  const updatedStatus = status !== undefined ? status : existing.status;
+  const updatedNotes = notes !== undefined ? (notes ? notes.trim() : '') : existing.notes;
+  const updatedVisibility = visibility !== undefined ? visibility : existing.visibility;
+  const updatedResponsibles = responsibles !== undefined
+    ? JSON.stringify(Array.isArray(responsibles) ? responsibles : [responsibles])
+    : (existing.responsibles_json || '[]');
+
+  db.prepare(`
+    UPDATE calendar_events
+    SET title = ?,
+        description = ?,
+        event_date = ?,
+        end_date = ?,
+        event_time = ?,
+        location = ?,
+        category = ?,
+        status = ?,
+        notes = ?,
+        visibility = ?,
+        responsibles_json = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    updatedTitle,
+    updatedDescription,
+    updatedEventDate,
+    updatedEndDate,
+    updatedEventTime,
+    updatedLocation,
+    updatedCategory,
+    updatedStatus,
+    updatedNotes,
+    updatedVisibility,
+    updatedResponsibles,
+    now,
+    id
+  );
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'PATCH_CALENDAR_EVENT', 'calendar_event', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ before: existing, after: req.body }), now);
+
+  return res.json({ message: 'Evento atualizado com sucesso.' });
+});
+
+// DELETE /api/platform/calendar/:id (Cancelamento Seguro ou Exclusão)
+platformRouter.delete('/calendar/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const existing = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Evento não encontrado.' });
+  }
+
+  const now = new Date().toISOString();
+  const isHardDelete = req.query.hard === 'true';
+
+  if (isHardDelete) {
+    db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id);
+    db.prepare(`
+      INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'DELETE_CALENDAR_EVENT_HARD', 'calendar_event', ?, ?, ?)
+    `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(existing), now);
+    return res.json({ message: 'Evento excluído permanentemente do calendário.' });
+  } else {
+    db.prepare("UPDATE calendar_events SET status = 'Cancelado', updated_at = ? WHERE id = ?").run(now, id);
+    db.prepare(`
+      INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'CANCEL_CALENDAR_EVENT', 'calendar_event', ?, ?, ?)
+    `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(existing), now);
+    return res.json({ message: 'Evento marcado como Cancelado com sucesso.' });
+  }
+});
+
 platformRouter.post('/calendar/reimport-2027', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
-  seedEcosystemData();
+  const now = new Date().toISOString();
+  const insertStmt = db.prepare(`
+    INSERT INTO calendar_events (
+      id, external_stable_id, title, description, event_date, end_date, event_time,
+      location, category, status, visibility, responsibles_json, materials_json, notes, source,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Importador Oficial 2027', ?, ?)
+  `);
+
+  let added = 0;
+  for (const ev of CALENDAR_2027_SEED) {
+    const exists = db.prepare('SELECT id FROM calendar_events WHERE external_stable_id = ? OR (event_date = ? AND title = ?)').get(ev.id, ev.event_date, ev.title);
+    if (!exists) {
+      insertStmt.run(
+        ev.id,
+        ev.id,
+        ev.title,
+        ev.description || '',
+        ev.event_date,
+        (ev as any).end_date || null,
+        ev.event_time || null,
+        ev.location || null,
+        ev.category,
+        ev.status || 'Confirmado',
+        ev.visibility || 'publico',
+        JSON.stringify(ev.responsibles || ['Pedro', 'Fernanda']),
+        JSON.stringify(ev.materials || []),
+        ev.notes || '',
+        now,
+        now
+      );
+      added++;
+    }
+  }
+
   const total = (db.prepare('SELECT COUNT(*) as c FROM calendar_events').get() as any).c;
   return res.json({
-    message: `Importação idempotente concluída: os ${CALENDAR_2027_SEED.length} eventos oficiais de 2027 foram verificados sem duplicidades.`,
+    message: `Importação idempotente concluída: ${added} novos eventos adicionados. Total de ${total} eventos no calendário preservados sem duplicidades.`,
+    added,
     totalEvents: total,
   });
 });
@@ -959,6 +1157,23 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
     id
   );
 
+  // Sincronizar nome no cadastro de compradores de camisetas se houver vínculo
+  if (existing.buyer_member_id) {
+    try {
+      const syncName = name?.trim() || existing.name;
+      const syncDisplayName = display_name?.trim() || existing.display_name;
+      const syncPhone = phone !== undefined ? (phone?.trim() || '') : existing.phone;
+      db.prepare(`
+        UPDATE members
+        SET name = COALESCE(?, name),
+            display_name = COALESCE(?, display_name),
+            phone = COALESCE(?, phone),
+            updated_at = ?
+        WHERE id = ?
+      `).run(syncName, syncDisplayName, syncPhone, now, existing.buyer_member_id);
+    } catch {}
+  }
+
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_FULL', 'pastoral_member', ?, ?, ?)
@@ -1070,6 +1285,23 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
     now,
     id
   );
+
+  // Sincronizar nome no cadastro de compradores de camisetas se houver vínculo
+  if (existing.buyer_member_id) {
+    try {
+      const syncName = name?.trim() || existing.name;
+      const syncDisplayName = display_name?.trim() || existing.display_name;
+      const syncPhone = phone !== undefined ? (phone?.trim() || '') : existing.phone;
+      db.prepare(`
+        UPDATE members
+        SET name = COALESCE(?, name),
+            display_name = COALESCE(?, display_name),
+            phone = COALESCE(?, phone),
+            updated_at = ?
+        WHERE id = ?
+      `).run(syncName, syncDisplayName, syncPhone, now, existing.buyer_member_id);
+    } catch {}
+  }
 
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)

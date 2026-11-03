@@ -32,10 +32,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const profile = await api.getMe();
       setUser(profile);
-    } catch {
-      localStorage.removeItem('pastoral_auth_token');
-      setToken(null);
-      setUser(null);
+    } catch (err: any) {
+      // Only clear session if token is explicitly invalid or expired (401 or 403)
+      // Never log out on temporary 500 server errors or connection glitches
+      if (err?.status === 401 || err?.status === 403) {
+        localStorage.removeItem('pastoral_auth_token');
+        setToken(null);
+        setUser(null);
+      } else {
+        console.warn('Aviso: Falha temporária ao sincronizar perfil do usuário (mantendo sessão ativa):', err);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -40,6 +40,57 @@ import { OnboardingModal } from './components/modals/OnboardingModal';
 import { api } from './services/api';
 import { Order, Member, Campaign, Payment, DashboardKPIs, GoogleSheetsConfig } from './types';
 
+interface ModuleErrorBoundaryProps {
+  moduleName: string;
+  children: React.ReactNode;
+}
+
+class ModuleErrorBoundary extends React.Component<ModuleErrorBoundaryProps, { hasError: boolean; error: any }> {
+  constructor(props: ModuleErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, info: any) {
+    console.error(`Erro no módulo ${this.props.moduleName}:`, error, info);
+  }
+
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 max-w-lg mx-auto bg-white rounded-3xl border border-pastoral-dourado/40 shadow-md text-center space-y-4 my-8">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-pastoral-dourado flex items-center justify-center mx-auto border border-amber-200">
+            <span className="text-xl font-bold">⚠️</span>
+          </div>
+          <div>
+            <h3 className="font-serif font-bold text-base text-pastoral-cafe">
+              Não foi possível carregar {this.props.moduleName}
+            </h3>
+            <p className="text-xs text-zinc-500 mt-1">
+              Ocorreu uma falha temporária. Seus dados e sua sessão permanecem 100% seguros.
+            </p>
+          </div>
+          <button
+            onClick={this.handleRetry}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-xs"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const App: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
 
@@ -258,12 +309,18 @@ export const App: React.FC = () => {
 
           {currentView === 'comunidade' && <ComunidadeMissionariaView />}
 
-          {currentView === 'calendario_2027' && <Calendario2027View />}
+          {currentView === 'calendario_2027' && (
+            <ModuleErrorBoundary moduleName="Calendário">
+              <Calendario2027View />
+            </ModuleErrorBoundary>
+          )}
 
           {currentView === 'missoes_envios' && <MissoesEnviosView />}
 
           {currentView === 'formacao_laboratorios' && (
-            <FormacaoLaboratoriosView members={members} />
+            <ModuleErrorBoundary moduleName="Laboratórios & Formação">
+              <FormacaoLaboratoriosView members={members} />
+            </ModuleErrorBoundary>
           )}
 
           {currentView === 'minha_camiseta' && <MinhaCamisetaView orders={orders} />}

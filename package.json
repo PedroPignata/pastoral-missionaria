@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "seed": "tsx server/db/seed.ts",
-    "test": "tsx tests/platform_phase1_test.ts && tsx tests/platform_v3_security_auth_test.ts && tsx tests/platform_phase4_master_test.ts",
+    "test": "tsx tests/platform_phase1_test.ts && tsx tests/platform_v3_security_auth_test.ts && tsx tests/platform_phase4_master_test.ts && tsx tests/platform_phase5_regression_test.ts",
     "test:python": "PYTHONPATH=. backend/venv/bin/pytest backend/tests/"
   },
   "dependencies": {

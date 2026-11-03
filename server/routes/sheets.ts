@@ -59,7 +59,7 @@ sheetsRouter.get('/apps-script-code', authenticateToken, (_req: AuthenticatedReq
 });
 
 // POST /api/sheets/config
-sheetsRouter.post('/config', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+sheetsRouter.post('/config', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const {
     enabled,
     mode,
@@ -101,7 +101,7 @@ sheetsRouter.post('/sync-now', authenticateToken, requireRole(['admin', 'coorden
 });
 
 // POST /api/sheets/test-connection
-sheetsRouter.post('/test-connection', authenticateToken, requireRole(['admin']), async (req: AuthenticatedRequest, res: Response) => {
+sheetsRouter.post('/test-connection', authenticateToken, requireRole(['admin', 'coordenador']), async (req: AuthenticatedRequest, res: Response) => {
   const { mode, spreadsheet_id, service_account_email, service_account_private_key, webhook_url } = req.body;
 
   const tempConfig: any = {

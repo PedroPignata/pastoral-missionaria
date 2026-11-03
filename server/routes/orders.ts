@@ -387,7 +387,7 @@ ordersRouter.post('/bulk-status', authenticateToken, requireRole(['admin', 'coor
 });
 
 // POST /api/orders/:id/cancel
-ordersRouter.post('/:id/cancel', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+ordersRouter.post('/:id/cancel', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { reason } = req.body;
 

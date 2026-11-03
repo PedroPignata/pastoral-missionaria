@@ -7,6 +7,15 @@ function getAuthHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = `Erro na requisição (HTTP ${res.status})`;
@@ -16,7 +25,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     } catch {
       // ignore
     }
-    throw new Error(errorMsg);
+    throw new ApiError(errorMsg, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -374,12 +383,18 @@ export const api = {
     return handleResponse<any>(res);
   },
 
-  async getCalendarEvents(params: { category?: string; month?: string; status?: string } = {}) {
+  async getCalendarEvents(params: { category?: string; month?: string; status?: string; year?: string | number; include_birthdays?: boolean | string; include_holidays?: boolean | string } = {}) {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v) query.append(k, v);
+      if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
     });
     const res = await fetch(`${API_BASE}/platform/calendar?${query.toString()}`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async getCalendarHolidays(year?: number) {
+    const query = year ? `?year=${year}` : '';
+    const res = await fetch(`${API_BASE}/platform/calendar/holidays${query}`, { headers: getAuthHeader() });
     return handleResponse<any[]>(res);
   },
 
@@ -388,6 +403,23 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async updateCalendarEvent(id: string, data: any) {
+    const res = await fetch(`${API_BASE}/platform/calendar/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async deleteCalendarEvent(id: string, hard: boolean = false) {
+    const res = await fetch(`${API_BASE}/platform/calendar/${id}${hard ? '?hard=true' : ''}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
     });
     return handleResponse<any>(res);
   },

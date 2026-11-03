@@ -302,9 +302,12 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
 
     if (groupsList && groupsList.length > 0) {
       groupsList.forEach((g: any) => {
-        text += `*GRUPO ${g.group_number}* (${g.duration_minutes || g.members?.length * durationMin} min):\n`;
-        (g.members || []).forEach((m: any) => {
-          text += `• ${m.order_in_group || m.order}º: *${m.speaker_name}* — ${m.theme_title || 'Tema Livre'}\n`;
+        const list = g.speakers || g.members || [];
+        const dur = g.total_duration_minutes || g.duration_minutes || (list.length * durationMin);
+        text += `*${g.group_name || `GRUPO ${g.group_number}`}* (${dur} min):\n`;
+        list.forEach((m: any, idx: number) => {
+          const ord = m.order || m.presentation_order || m.order_in_group || (idx + 1);
+          text += `• ${ord}º: *${m.speaker_name}* — ${m.theme_title || 'Tema Livre'}\n`;
         });
         text += `\n`;
       });
@@ -898,41 +901,49 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                     <span>Divisão inteligente: <strong>{latestGroups.length} grupos</strong> balanceados (máx. 4 pregadores/grupo)</span>
                     <span className="font-bold text-pastoral-cafe">{latestDraw.length} pregadores</span>
                   </div>
-                  {latestGroups.map((grp: any) => (
-                    <div key={grp.group_number} className="p-3.5 rounded-2xl border border-pastoral-dourado/30 bg-white shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded-full bg-pastoral-cafe text-white font-bold text-[11px]">
-                            {grp.group_name}
-                          </span>
-                          <span className="text-xs text-zinc-500">
-                            {grp.speakers_count} {grp.speakers_count === 1 ? 'pregador' : 'pregadores'}
-                          </span>
-                        </div>
-                        <span className="text-[11px] font-semibold text-pastoral-vinho bg-pastoral-vinho/10 px-2 py-0.5 rounded-lg">
-                          ⏱ {grp.total_duration_minutes} min total ({grp.duration_per_speaker_minutes} min/fala)
-                        </span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {grp.speakers.map((item: any) => (
-                          <div key={item.order} className="p-2.5 rounded-xl bg-pastoral-creme/30 border border-zinc-100 flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="w-5 h-5 rounded-full bg-pastoral-dourado text-pastoral-profundo font-bold text-[10px] flex items-center justify-center flex-shrink-0">
-                                {item.order}º
-                              </span>
-                              <div className="min-w-0">
-                                <span className="font-bold text-pastoral-cafe block truncate">{item.speaker_name}</span>
-                                <span className="text-[11px] text-zinc-600 block truncate">{item.theme_title || 'Tema Livre'}</span>
-                              </div>
-                            </div>
-                            <span className="text-[10px] text-zinc-400 font-medium ml-2 flex-shrink-0">
-                              {item.duration_minutes || 20} min
+                  {latestGroups.map((grp: any) => {
+                    const speakersList = grp.speakers || grp.members || [];
+                    const spCount = grp.speakers_count ?? speakersList.length;
+                    const totMinutes = grp.total_duration_minutes ?? (grp.duration_minutes || spCount * (grp.duration_per_speaker_minutes || 20));
+                    return (
+                      <div key={grp.group_number || Math.random()} className="p-3.5 rounded-2xl border border-pastoral-dourado/30 bg-white shadow-2xs space-y-2">
+                        <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-full bg-pastoral-cafe text-white font-bold text-[11px]">
+                              {grp.group_name || `Grupo ${grp.group_number}`}
+                            </span>
+                            <span className="text-xs text-zinc-500">
+                              {spCount} {spCount === 1 ? 'pregador' : 'pregadores'}
                             </span>
                           </div>
-                        ))}
+                          <span className="text-[11px] font-semibold text-pastoral-vinho bg-pastoral-vinho/10 px-2 py-0.5 rounded-lg">
+                            ⏱ {totMinutes} min total ({grp.duration_per_speaker_minutes || 20} min/fala)
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {speakersList.map((item: any, idx: number) => {
+                            const orderNum = item.order || item.presentation_order || item.order_in_group || (idx + 1);
+                            return (
+                              <div key={orderNum} className="p-2.5 rounded-xl bg-pastoral-creme/30 border border-zinc-100 flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span className="w-5 h-5 rounded-full bg-pastoral-dourado text-pastoral-profundo font-bold text-[10px] flex items-center justify-center flex-shrink-0">
+                                    {orderNum}º
+                                  </span>
+                                  <div className="min-w-0">
+                                    <span className="font-bold text-pastoral-cafe block truncate">{item.speaker_name}</span>
+                                    <span className="text-[11px] text-zinc-600 block truncate">{item.theme_title || 'Tema Livre'}</span>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-zinc-400 font-medium ml-2 flex-shrink-0">
+                                  {item.duration_minutes || 20} min
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -1191,30 +1202,38 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                           {draw.groups.length} grupos balanceados ({participants.length} pregadores)
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {draw.groups.map((grp: any) => (
-                            <div key={grp.group_number} className="p-3 rounded-xl bg-pastoral-creme/30 border border-pastoral-dourado/20 space-y-2">
-                              <div className="flex items-center justify-between text-xs font-bold text-pastoral-cafe border-b border-pastoral-dourado/10 pb-1.5">
-                                <span>{grp.group_name}</span>
-                                <span className="text-[10px] text-pastoral-vinho font-semibold">
-                                  ⏱ {grp.total_duration_minutes || (grp.speakers_count * (draw.duration_minutes || 20))} min
-                                </span>
+                          {draw.groups.map((grp: any) => {
+                            const speakersList = grp.speakers || grp.members || [];
+                            const spCount = grp.speakers_count ?? speakersList.length;
+                            const totMinutes = grp.total_duration_minutes || (grp.duration_minutes || (spCount * (draw.duration_minutes || 20)));
+                            return (
+                              <div key={grp.group_number || Math.random()} className="p-3 rounded-xl bg-pastoral-creme/30 border border-pastoral-dourado/20 space-y-2">
+                                <div className="flex items-center justify-between text-xs font-bold text-pastoral-cafe border-b border-pastoral-dourado/10 pb-1.5">
+                                  <span>{grp.group_name || `Grupo ${grp.group_number}`}</span>
+                                  <span className="text-[10px] text-pastoral-vinho font-semibold">
+                                    ⏱ {totMinutes} min
+                                  </span>
+                                </div>
+                                <div className="space-y-1">
+                                  {speakersList.map((sp: any, idx: number) => {
+                                    const ord = sp.order || sp.presentation_order || sp.order_in_group || (idx + 1);
+                                    return (
+                                      <div key={ord} className="text-xs flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white/70">
+                                        <div className="min-w-0 flex items-center gap-1.5">
+                                          <span className="w-4 h-4 rounded-full bg-pastoral-cafe text-white font-bold text-[9px] flex items-center justify-center flex-shrink-0">
+                                            {ord}
+                                          </span>
+                                          <span className="font-semibold text-pastoral-cafe truncate">{sp.speaker_name}</span>
+                                          <span className="text-[11px] text-zinc-500 truncate">- {sp.theme_title || 'Tema Livre'}</span>
+                                        </div>
+                                        <span className="text-[10px] text-zinc-400 flex-shrink-0">{sp.duration_minutes || 20}m</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                              <div className="space-y-1">
-                                {grp.speakers.map((sp: any) => (
-                                  <div key={sp.order} className="text-xs flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white/70">
-                                    <div className="min-w-0 flex items-center gap-1.5">
-                                      <span className="w-4 h-4 rounded-full bg-pastoral-cafe text-white font-bold text-[9px] flex items-center justify-center flex-shrink-0">
-                                        {sp.order}
-                                      </span>
-                                      <span className="font-semibold text-pastoral-cafe truncate">{sp.speaker_name}</span>
-                                      <span className="text-[11px] text-zinc-500 truncate">- {sp.theme_title}</span>
-                                    </div>
-                                    <span className="text-[10px] text-zinc-400 flex-shrink-0">{sp.duration_minutes || 20}m</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ) : (

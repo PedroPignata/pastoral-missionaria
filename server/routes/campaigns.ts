@@ -32,7 +32,7 @@ campaignsRouter.get('/active', authenticateToken, (_req: AuthenticatedRequest, r
 });
 
 // POST /api/campaigns
-campaignsRouter.post('/', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+campaignsRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { name, description, start_date, end_date, default_price_cents } = req.body;
 
   if (!name || !name.trim()) {
@@ -54,7 +54,7 @@ campaignsRouter.post('/', authenticateToken, requireRole(['admin']), (req: Authe
 });
 
 // PUT /api/campaigns/:id
-campaignsRouter.put('/:id', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+campaignsRouter.put('/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { name, description, start_date, end_date, default_price_cents, status } = req.body;
 
@@ -85,7 +85,7 @@ campaignsRouter.put('/:id', authenticateToken, requireRole(['admin']), (req: Aut
 });
 
 // POST /api/campaigns/:id/activate
-campaignsRouter.post('/:id/activate', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+campaignsRouter.post('/:id/activate', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
 
   db.transaction(() => {
