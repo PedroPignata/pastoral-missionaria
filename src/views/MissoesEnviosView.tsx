@@ -12,6 +12,8 @@ import {
   Check,
   Sparkles,
   Users,
+  Lock,
+  X,
 } from 'lucide-react';
 
 const ROLES_FUNCTIONS = [
@@ -30,14 +32,18 @@ const ROLES_FUNCTIONS = [
 export const MissoesEnviosView: React.FC = () => {
   const { user } = useAuth();
   const canApprove = user?.role === 'admin' || user?.role === 'coordenador';
+  const canAccessTemplates = user?.role === 'admin' || user?.role === 'coordenador' || user?.role === 'delegado';
 
   const [activeTab, setActiveTab] = useState<'envios' | 'modelos'>('envios');
   const [dispatches, setDispatches] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [availableMembers, setAvailableMembers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Dispatch Request Form
   const [requesterName, setRequesterName] = useState(user?.name || '');
+  const [selectedCompanions, setSelectedCompanions] = useState<string[]>([]);
+  const [customCompanionInput, setCustomCompanionInput] = useState('');
   const [eventName, setEventName] = useState('');
   const [eventDate, setEventDate] = useState('2027-03-14');
   const [eventTime, setEventTime] = useState('');
@@ -55,9 +61,19 @@ export const MissoesEnviosView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [dispData, tplData] = await Promise.all([api.getDispatches(), api.getTemplates()]);
+      const [dispData, tplData, membersData] = await Promise.all([
+        api.getDispatches(),
+        canAccessTemplates ? api.getTemplates().catch(() => []) : Promise.resolve([]),
+        api.getMembers({ active: true }).catch(() => []),
+      ]);
       setDispatches(dispData);
       setTemplates(tplData);
+      if (Array.isArray(membersData)) {
+        const names = membersData
+          .map((m: any) => m.name || m.display_name)
+          .filter(Boolean);
+        setAvailableMembers(names);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -67,13 +83,25 @@ export const MissoesEnviosView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [canAccessTemplates]);
+
+  const handleAddCompanion = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || selectedCompanions.includes(trimmed)) return;
+    setSelectedCompanions((prev) => [...prev, trimmed]);
+    setCustomCompanionInput('');
+  };
+
+  const handleRemoveCompanion = (name: string) => {
+    setSelectedCompanions((prev) => prev.filter((c) => c !== name));
+  };
 
   const handleSubmitDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const res = await api.createDispatch({
         requester_name: requesterName,
+        companions: selectedCompanions,
         event_name: eventName,
         event_date: eventDate,
         event_time: eventTime,
@@ -89,6 +117,7 @@ export const MissoesEnviosView: React.FC = () => {
       setEventName('');
       setTheme('');
       setNotes('');
+      setSelectedCompanions([]);
       loadData();
     } catch (err: any) {
       alert(err.message);
@@ -134,13 +163,14 @@ export const MissoesEnviosView: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('modelos')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'modelos'
                 ? 'bg-pastoral-cafe text-white shadow-xs'
                 : 'text-zinc-600 hover:text-pastoral-cafe'
             }`}
           >
-            Modelos de Encontros e Estágios ({templates.length})
+            {!canAccessTemplates && <Lock className="w-3 h-3 text-zinc-400" />}
+            <span>Modelos de Encontros e Estágios {canAccessTemplates ? `(${templates.length})` : ''}</span>
           </button>
         </div>
       </div>
@@ -182,6 +212,89 @@ export const MissoesEnviosView: React.FC = () => {
                   className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
                   required
                 />
+              </div>
+
+              {/* 8. Campo Acompanhantes (dois a dois - Lc 10,1) */}
+              <div className="p-3 rounded-xl bg-pastoral-creme/50 border border-pastoral-dourado/30 space-y-2">
+                <div>
+                  <label className="text-[11px] font-bold text-pastoral-cafe uppercase flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-pastoral-dourado" />
+                    <span>Quem irá acompanhar você nessa missão?</span>
+                  </label>
+                  <p className="text-[10px] text-zinc-500 mt-0.5">
+                    <em>"O Senhor designou outros setenta e dois e os enviou dois a dois"</em> (Lc 10,1). Na pastoral católica, os missionários nunca vão sós.
+                  </p>
+                </div>
+
+                {/* Badges dos acompanhantes selecionados */}
+                {selectedCompanions.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {selectedCompanions.map((comp) => (
+                      <span
+                        key={comp}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-pastoral-cafe text-white shadow-2xs"
+                      >
+                        <span>{comp}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCompanion(comp)}
+                          className="hover:text-rose-300 ml-0.5"
+                          title="Remover acompanhante"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-800 font-medium italic">
+                    Nenhum acompanhante selecionado ainda. Adicione ao menos um irmão abaixo:
+                  </p>
+                )}
+
+                {/* Seletor rápido de membros + Digitação manual para externos */}
+                <div className="flex flex-col sm:flex-row gap-1.5 pt-1">
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddCompanion(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    defaultValue=""
+                    className="sm:w-1/2 px-2.5 py-1.5 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="" disabled>Selecione um missionário...</option>
+                    {availableMembers
+                      .filter((m) => !selectedCompanions.includes(m) && m !== requesterName)
+                      .map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                  </select>
+
+                  <div className="flex-1 flex gap-1">
+                    <input
+                      type="text"
+                      value={customCompanionInput}
+                      onChange={(e) => setCustomCompanionInput(e.target.value)}
+                      placeholder="Ou digite o nome..."
+                      className="flex-1 px-2.5 py-1.5 text-xs rounded-xl border border-zinc-300"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCompanion(customCompanionInput);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddCompanion(customCompanionInput)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -366,6 +479,12 @@ export const MissoesEnviosView: React.FC = () => {
                           {d.event_time ? ` às ${d.event_time}` : ''}
                         </p>
                         {d.theme && <p className="text-[11px] text-zinc-600">Tema: {d.theme}</p>}
+                        {d.companions && d.companions.length > 0 && (
+                          <p className="text-[11px] text-zinc-700 flex items-center gap-1.5 pt-0.5">
+                            <Users className="w-3.5 h-3.5 text-pastoral-dourado flex-shrink-0" />
+                            <span><strong>Acompanhantes:</strong> {d.companions.join(', ')}</span>
+                          </p>
+                        )}
                         <p className="text-[11px] text-zinc-400">Destinatário: {d.recipient}</p>
                       </div>
 
@@ -398,6 +517,23 @@ export const MissoesEnviosView: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      ) : !canAccessTemplates ? (
+        <div className="bg-white p-10 rounded-3xl border border-zinc-200 text-center max-w-lg mx-auto space-y-4 my-8 shadow-xs">
+          <div className="w-14 h-14 rounded-full bg-amber-50 text-pastoral-dourado flex items-center justify-center mx-auto border border-amber-200">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div>
+            <h3 className="font-serif font-bold text-lg text-pastoral-cafe">
+              Acesso Restrito à Coordenação e Formação
+            </h3>
+            <p className="text-xs text-zinc-600 leading-relaxed mt-2">
+              Os modelos oficiais de encontros, retiros e estágios da Pastoral Missionária são protegidos e geridos pela coordenação geral e equipe de formação.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200 text-[11px] text-zinc-600">
+            Caso você tenha sido convidado para coordenar ou ministrar uma missão e precise de um roteiro de referência, solicite acesso diretamente à coordenação (Pedro e Fernanda).
           </div>
         </div>
       ) : (

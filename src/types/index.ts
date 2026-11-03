@@ -134,6 +134,7 @@ export interface GoogleSheetsConfig {
   spreadsheet_id: string;
   spreadsheet_name: string;
   service_account_email: string;
+  service_account_private_key?: string;
   has_private_key: boolean;
   webhook_url: string;
   auto_sync: boolean;

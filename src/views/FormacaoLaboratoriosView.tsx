@@ -44,10 +44,11 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
   const { user } = useAuth();
   const canManage = user?.role === 'admin' || user?.role === 'coordenador';
 
-  const [activeTab, setActiveTab] = useState<'avaliacao' | 'sorteio' | 'temas' | 'historico'>('avaliacao');
+  const [activeTab, setActiveTab] = useState<'sorteio' | 'historico_sorteios' | 'avaliacao' | 'historico_avaliacoes' | 'temas'>('sorteio');
   const [themes, setThemes] = useState<any[]>([]);
   const [labs, setLabs] = useState<any[]>([]);
   const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [savedDraws, setSavedDraws] = useState<any[]>([]);
   const [feedback, setFeedback] = useState('');
 
   // 27. Free Text Evaluation Form
@@ -67,18 +68,23 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
   const [comments, setComments] = useState('');
   const [suggestedFutureThemes, setSuggestedFutureThemes] = useState('');
 
-  // 29. Sorteador State
+  // 29. Sorteador State (Duração padrão oficial: 20 minutos)
   const [drawTitle, setDrawTitle] = useState('Laboratório de Pregação — Pastoral Missionária');
-  const [drawDuration, setDrawDuration] = useState(15);
+  const [drawDuration, setDrawDuration] = useState(20);
   const [drawMode, setDrawMode] = useState<'order_and_theme' | 'order_only'>('order_and_theme');
   const [participantSearch, setParticipantSearch] = useState('');
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
   const [customSpeakers, setCustomSpeakers] = useState<string[]>([]);
   const [customSpeakerInput, setCustomSpeakerInput] = useState('');
   const [latestDraw, setLatestDraw] = useState<any[]>([]);
+  const [repeatConfirmationModal, setRepeatConfirmationModal] = useState<{
+    open: boolean;
+    speakersCount: number;
+    themesCount: number;
+  }>({ open: false, speakersCount: 0, themesCount: 0 });
 
-  // 15-min Stopwatch
-  const [secondsLeft, setSecondsLeft] = useState(15 * 60);
+  // 20-min Stopwatch
+  const [secondsLeft, setSecondsLeft] = useState(20 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
 
   // 28. Themes Management Modal & State
@@ -93,11 +99,15 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
 
   const loadLabsData = async () => {
     try {
-      const data = await api.getLabsData();
+      const [data, draws] = await Promise.all([api.getLabsData(), api.getLabDraws()]);
       setThemes(data.themes || []);
       setLabs(data.labs || []);
       setEvaluations(data.evaluations || []);
-      if (data.labs?.length > 0 && latestDraw.length === 0) {
+      setSavedDraws(draws || []);
+
+      if (draws && draws.length > 0 && latestDraw.length === 0) {
+        setLatestDraw(draws[0].participants || []);
+      } else if (data.labs?.length > 0 && latestDraw.length === 0) {
         const rawResults = data.labs[0].draw_results_json;
         if (typeof rawResults === 'string') {
           try {
@@ -211,12 +221,23 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
     setSelectedSpeakers(selectedSpeakers.filter((s) => s !== name));
   };
 
-  // Run Draw
-  const handleRunDraw = async () => {
+  // Run Draw (Suporte oficial a 20 participantes e duração padrão de 20 min)
+  const handleRunDraw = async (allowRepeat = false) => {
     if (selectedSpeakers.length === 0) {
       alert('Selecione ao menos um participante na lista para o sorteio.');
       return;
     }
+
+    const activeThemesCount = themes.filter((t) => t.active === 1).length;
+    if (drawMode === 'order_and_theme' && selectedSpeakers.length > activeThemesCount && !allowRepeat) {
+      setRepeatConfirmationModal({
+        open: true,
+        speakersCount: selectedSpeakers.length,
+        themesCount: activeThemesCount,
+      });
+      return;
+    }
+
     try {
       const res = await api.drawLabThemes({
         title: drawTitle,
@@ -224,15 +245,55 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
         duration_minutes: drawDuration,
         speakers: selectedSpeakers,
         draw_mode: drawMode,
+        allow_repeat: allowRepeat,
       });
       setLatestDraw(res.draw_results);
       setSecondsLeft(drawDuration * 60);
       setFeedback(res.message);
+      setRepeatConfirmationModal({ open: false, speakersCount: 0, themesCount: 0 });
       loadLabsData();
       setTimeout(() => setFeedback(''), 4000);
     } catch (err: any) {
       alert('Erro no sorteio: ' + err.message);
     }
+  };
+
+  const handleArchiveDraw = async (id: string) => {
+    try {
+      await api.archiveLabDraw(id);
+      setFeedback('Sorteio arquivado com sucesso!');
+      loadLabsData();
+      setTimeout(() => setFeedback(''), 4000);
+    } catch (err: any) {
+      alert('Erro ao arquivar sorteio: ' + err.message);
+    }
+  };
+
+  const handleDeleteDraw = async (id: string) => {
+    if (!window.confirm('Tem certeza que deseja remover este sorteio do histórico? As avaliações registradas permanecerão salvas.')) {
+      return;
+    }
+    try {
+      await api.deleteLabDraw(id);
+      setFeedback('Sorteio excluído do histórico com sucesso!');
+      loadLabsData();
+      setTimeout(() => setFeedback(''), 4000);
+    } catch (err: any) {
+      alert('Erro ao excluir sorteio: ' + err.message);
+    }
+  };
+
+  const handleCopyScheduleFromDraw = (draw: any) => {
+    let text = `🕊️ *PROGRAMAÇÃO — ${(draw.laboratory_name || drawTitle).toUpperCase()}*\n`;
+    text += `Data: ${(draw.laboratory_date || labDate).split('-').reverse().join('/')} | Tempo: ${draw.duration_minutes || 20} min por participante\n\n`;
+    const parts = draw.participants || draw.draw_results || [];
+    parts.forEach((item: any) => {
+      text += `*${item.order}º Apresentador(a):* ${item.speaker_name}\n`;
+      text += `   📖 Tema: ${item.theme_title || 'Tema Livre'}\n\n`;
+    });
+    text += `_Paróquia São Vicente de Paulo — Pastoral Missionária_`;
+    navigator.clipboard.writeText(text);
+    alert('Programação copiada para a área de transferência!');
   };
 
   const handleCopyDrawSchedule = () => {
@@ -333,7 +394,27 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
         </div>
 
         {/* Tab Buttons */}
-        <div className="flex flex-wrap p-1 rounded-2xl bg-zinc-100 border border-zinc-200 text-xs font-semibold">
+        <div className="flex flex-wrap p-1 rounded-2xl bg-zinc-100 border border-zinc-200 text-xs font-semibold gap-1">
+          <button
+            onClick={() => setActiveTab('sorteio')}
+            className={`px-3 py-1.5 rounded-xl transition-all ${
+              activeTab === 'sorteio'
+                ? 'bg-white text-pastoral-cafe font-bold shadow-xs'
+                : 'text-zinc-600 hover:text-pastoral-cafe'
+            }`}
+          >
+            Sorteador de Pregação
+          </button>
+          <button
+            onClick={() => setActiveTab('historico_sorteios')}
+            className={`px-3 py-1.5 rounded-xl transition-all ${
+              activeTab === 'historico_sorteios'
+                ? 'bg-white text-pastoral-cafe font-bold shadow-xs'
+                : 'text-zinc-600 hover:text-pastoral-cafe'
+            }`}
+          >
+            Histórico de Sorteios ({savedDraws.length})
+          </button>
           <button
             onClick={() => setActiveTab('avaliacao')}
             className={`px-3 py-1.5 rounded-xl transition-all ${
@@ -345,14 +426,14 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
             Ficha de Avaliação
           </button>
           <button
-            onClick={() => setActiveTab('sorteio')}
+            onClick={() => setActiveTab('historico_avaliacoes')}
             className={`px-3 py-1.5 rounded-xl transition-all ${
-              activeTab === 'sorteio'
+              activeTab === 'historico_avaliacoes'
                 ? 'bg-white text-pastoral-cafe font-bold shadow-xs'
                 : 'text-zinc-600 hover:text-pastoral-cafe'
             }`}
           >
-            Sorteador ({latestDraw.length})
+            Histórico de Avaliações ({evaluations.length})
           </button>
           <button
             onClick={() => setActiveTab('temas')}
@@ -362,17 +443,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                 : 'text-zinc-600 hover:text-pastoral-cafe'
             }`}
           >
-            Temas ({themes.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('historico')}
-            className={`px-3 py-1.5 rounded-xl transition-all ${
-              activeTab === 'historico'
-                ? 'bg-white text-pastoral-cafe font-bold shadow-xs'
-                : 'text-zinc-600 hover:text-pastoral-cafe'
-            }`}
-          >
-            Histórico ({evaluations.length})
+            Temas Disponíveis ({themes.filter((t) => t.active === 1).length})
           </button>
         </div>
       </div>
@@ -672,7 +743,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                     onChange={() => setDrawMode('order_and_theme')}
                     className="text-pastoral-dourado"
                   />
-                  <span>Sortear Ordem e Temas ({themes.filter((t) => t.active === 1).length} temas ativos)</span>
+                  <span>Sortear ordem e temas (Temas disponíveis)</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -707,7 +778,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
 
               <button
                 type="button"
-                onClick={handleRunDraw}
+                onClick={() => handleRunDraw()}
                 className="w-full mt-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo shadow-gold flex items-center justify-center gap-2 hover:brightness-105 active:scale-95 transition-all"
               >
                 <Shuffle className="w-4 h-4" />
@@ -936,8 +1007,140 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
         </div>
       )}
 
+      {/* ABA: HISTÓRICO DE SORTEIOS DEDICADO */}
+      {activeTab === 'historico_sorteios' && (
+        <div className="bg-white p-6 rounded-3xl border border-zinc-200/80 shadow-xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100">
+            <div>
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Shuffle className="w-4 h-4 text-pastoral-dourado" />
+                Histórico de Sorteios Realizados
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Registros permanentes de sorteios, ordem de apresentação, temas e tempo oficial por fala (20 min)
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveTab('sorteio')}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo flex items-center gap-1.5 hover:brightness-105"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Sorteio</span>
+            </button>
+          </div>
+
+          {savedDraws.length === 0 ? (
+            <div className="py-12 text-center text-zinc-400 text-xs space-y-2">
+              <p>Nenhum sorteio registrado no histórico ainda.</p>
+              <p className="text-[11px] text-zinc-400">
+                Realize um sorteio na aba <strong>"Sorteador de Pregação"</strong> para que ele fique registrado permanentemente aqui.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {savedDraws.map((draw) => {
+                const participants = draw.participants || draw.draw_results || [];
+                const isArchived = draw.status === 'arquivado';
+
+                return (
+                  <div
+                    key={draw.id}
+                    className={`p-5 rounded-2xl border transition-all ${
+                      isArchived
+                        ? 'bg-zinc-50 border-zinc-200 opacity-75'
+                        : 'bg-white border-pastoral-dourado/30 shadow-xs'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-100">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
+                            {draw.laboratory_name || 'Laboratório de Pregação'}
+                          </h4>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                              isArchived
+                                ? 'bg-zinc-200 text-zinc-600'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {isArchived ? 'Arquivado' : 'Ativo'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                          Data do Lab: <strong>{(draw.laboratory_date || draw.draw_date || '').split('-').reverse().join('/')}</strong> • Duração:{' '}
+                          <strong>{draw.duration_minutes || 20} min</strong> por fala • Coordenação:{' '}
+                          <strong>{draw.coordinator_name || 'Pedro e Fernanda'}</strong>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyScheduleFromDraw(draw)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-pastoral-creme hover:bg-pastoral-dourado/20 text-pastoral-cafe border border-pastoral-dourado/30 flex items-center gap-1.5 transition-colors"
+                          title="Copiar programação para WhatsApp"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-pastoral-dourado" />
+                          <span>Copiar WhatsApp</span>
+                        </button>
+
+                        {canManage && (
+                          <>
+                            {!isArchived && (
+                              <button
+                                type="button"
+                                onClick={() => handleArchiveDraw(draw.id)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors"
+                                title="Arquivar sorteio"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDraw(draw.id)}
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="Remover sorteio"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sorteio Participants Grid */}
+                    <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {participants.map((item: any, pIdx: number) => (
+                        <div
+                          key={pIdx}
+                          className="p-3 rounded-xl bg-pastoral-creme/40 border border-pastoral-dourado/20 text-xs flex items-center gap-2.5"
+                        >
+                          <span className="w-6 h-6 rounded-full bg-pastoral-cafe text-white font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                            {item.order || pIdx + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-bold text-pastoral-cafe block truncate">
+                              {item.speaker_name}
+                            </span>
+                            <span className="text-[11px] text-zinc-600 block truncate" title={item.theme_title}>
+                              {item.theme_title || 'Tema Livre / A Definir'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 30. ABA 4: HISTÓRICO DE AVALIAÇÕES */}
-      {activeTab === 'historico' && (
+      {activeTab === 'historico_avaliacoes' && (
         <div className="bg-white p-6 rounded-3xl border border-zinc-200/80 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100">
             <div>
@@ -1020,6 +1223,68 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal: Confirmação de Participantes x Temas Disponíveis (ex: 20 pessoas) */}
+      {repeatConfirmationModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Shuffle className="w-5 h-5 text-pastoral-dourado" />
+                Participantes x Temas Disponíveis
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRepeatConfirmationModal({ open: false, speakersCount: 0, themesCount: 0 })}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-zinc-600 leading-relaxed">
+              <p>
+                Você selecionou <strong>{repeatConfirmationModal.speakersCount} participantes</strong>, mas existem atualmente{' '}
+                <strong>{repeatConfirmationModal.themesCount} temas ativos</strong> cadastrados.
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                Conforme as regras institucionais, temas não são repetidos sem a sua autorização explícita. Escolha como prefere prosseguir:
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => handleRunDraw(true)}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-pastoral-dourado hover:brightness-105 shadow-xs flex items-center justify-center gap-2 transition-all"
+              >
+                <Check className="w-4 h-4" />
+                <span>Autorizar Sorteio com Repetição de Temas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRepeatConfirmationModal({ open: false, speakersCount: 0, themesCount: 0 });
+                  handleOpenThemeModal();
+                }}
+                className="w-full py-2 px-4 rounded-xl text-xs font-semibold text-pastoral-cafe bg-pastoral-creme hover:bg-pastoral-dourado/20 border border-pastoral-dourado/30 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Adicionar Mais um Tema Formativo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRepeatConfirmationModal({ open: false, speakersCount: 0, themesCount: 0 })}
+                className="w-full py-1.5 px-4 rounded-xl text-xs text-zinc-500 hover:text-zinc-700 text-center"
+              >
+                Voltar e Ajustar Participantes
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

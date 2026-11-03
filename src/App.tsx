@@ -201,18 +201,26 @@ export const App: React.FC = () => {
     );
   }
 
-  // If not authenticated, show Login View
-  if (!user) {
-    return <LoginView />;
-  }
+  // Check if hash is #portal on load
+  useEffect(() => {
+    if (window.location.hash === '#portal' || window.location.search.includes('portal=true')) {
+      setCurrentView('portal_publico');
+    }
+  }, []);
 
+  // Public Institutional Portal viewable by anyone (logged in or visitor)
   if (currentView === 'portal_publico') {
     return (
       <PublicPortalView
         onBackToLogin={() => setCurrentView('painel_missionario')}
-        isAuthenticated={true}
+        isAuthenticated={!!user}
       />
     );
+  }
+
+  // If not authenticated, show simplified Google Login View
+  if (!user) {
+    return <LoginView onOpenPublicPortal={() => setCurrentView('portal_publico')} />;
   }
 
   return (
@@ -229,6 +237,7 @@ export const App: React.FC = () => {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Navbar */}
         <Header
+          currentView={currentView}
           onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           activeCampaign={activeCampaign}
           sheetsConfig={sheetsConfig}

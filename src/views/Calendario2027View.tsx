@@ -197,7 +197,7 @@ export const Calendario2027View: React.FC = () => {
   const handleReimport = async () => {
     if (!confirm('Deseja verificar e importar as 26 datas oficiais do Calendário 2027? Operação idempotente.')) return;
     try {
-      const res = await api.reimport2027Calendar();
+      const res = await api.reimportCalendar2027();
       setFeedback(`Verificação concluída: ${res.count} eventos oficiais garantidos!`);
       loadEvents();
       setTimeout(() => setFeedback(''), 5000);

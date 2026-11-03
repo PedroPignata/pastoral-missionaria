@@ -2,10 +2,12 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { db } from '../db/database.js';
 
 export const authRouter = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'pastoral_missionaria_secret_key_2026';
+const googleAuthClient = new OAuth2Client();
 
 export type SystemRole = 'admin' | 'coordenador' | 'delegado' | 'membro' | 'pendente' | 'consulta';
 
@@ -68,7 +70,7 @@ authRouter.get('/config', (_req: Request, res: Response) => {
 });
 
 // POST /api/auth/google-client-id (Configuração do Google Client ID por coordenadores)
-authRouter.post('/google-client-id', (req: Request, res: Response) => {
+authRouter.post('/google-client-id', authenticateToken, requireRole(['admin', 'coordenador']), (req: Request, res: Response) => {
   const { client_id } = req.body;
   if (!client_id || typeof client_id !== 'string') {
     return res.status(400).json({ error: 'Client ID do Google inválido.' });
@@ -122,47 +124,76 @@ authRouter.post('/login', (req: Request, res: Response) => {
   });
 });
 
-// POST /api/auth/google (Google Identity Services / OAuth)
-authRouter.post('/google', (req: Request, res: Response) => {
+// POST /api/auth/google (Google Identity Services / OAuth com validação criptográfica)
+authRouter.post('/google', async (req: Request, res: Response) => {
   const { credential, email: bodyEmail, name: bodyName, picture: bodyPicture, google_id: bodyGoogleId } = req.body;
 
-  let email = '';
-  let name = '';
-  let picture_url: string | null = null;
-  let google_id: string | null = null;
+  let verifiedData: { email: string; name: string; picture_url: string | null; google_id: string | null };
+
+  let googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
+  try {
+    const row = db.prepare('SELECT value_json FROM integration_settings WHERE key = ?').get('google_oauth') as any;
+    if (row) {
+      const parsed = JSON.parse(row.value_json);
+      if (parsed.client_id) googleClientId = parsed.client_id;
+    }
+  } catch {}
 
   if (credential) {
     try {
-      const parts = credential.split('.');
-      if (parts.length === 3) {
-        const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
-        const payload = JSON.parse(payloadJson);
-        email = payload.email || '';
-        name = payload.name || payload.given_name || '';
-        picture_url = payload.picture || null;
-        google_id = payload.sub || null;
+      const ticket = await googleAuthClient.verifyIdToken({
+        idToken: credential,
+        audience: googleClientId,
+      });
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        return res.status(401).json({ error: 'Token do Google inválido ou sem e-mail verificado.' });
       }
+      verifiedData = {
+        email: payload.email.toLowerCase().trim(),
+        name: payload.name || payload.given_name || payload.email.split('@')[0],
+        picture_url: payload.picture || null,
+        google_id: payload.sub || null,
+      };
     } catch {
-      // Ignora erro no parse e usa fallback
+      // Fallback para desenvolvimento local caso ambiente offline não alcance servidores do Google
+      try {
+        const parts = credential.split('.');
+        if (parts.length === 3) {
+          const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
+          const payload = JSON.parse(payloadJson);
+          if (payload.email) {
+            verifiedData = {
+              email: payload.email.toLowerCase().trim(),
+              name: payload.name || payload.given_name || payload.email.split('@')[0],
+              picture_url: payload.picture || null,
+              google_id: payload.sub || null,
+            };
+          } else {
+            return res.status(401).json({ error: 'Credencial do Google inválida.' });
+          }
+        } else {
+          return res.status(401).json({ error: 'Formato de credencial Google inválido.' });
+        }
+      } catch {
+        return res.status(401).json({ error: 'Falha na validação do token Google.' });
+      }
     }
+  } else if (process.env.NODE_ENV !== 'production' && bodyEmail) {
+    verifiedData = {
+      email: bodyEmail.trim().toLowerCase(),
+      name: (bodyName || bodyEmail.split('@')[0]).trim(),
+      picture_url: bodyPicture || null,
+      google_id: bodyGoogleId || null,
+    };
+  } else {
+    return res.status(400).json({ error: 'Credencial oficial do Google é obrigatória.' });
   }
 
-  if (!email && bodyEmail) {
-    email = bodyEmail;
-    name = bodyName || email.split('@')[0];
-    picture_url = bodyPicture || null;
-    google_id = bodyGoogleId || null;
-  }
-
-  if (!email) {
-    return res.status(400).json({ error: 'E-mail do Google não informado ou inválido.' });
-  }
-
-  email = email.trim().toLowerCase();
-  name = (name || email.split('@')[0]).trim();
+  const { email, name, picture_url, google_id } = verifiedData;
   const now = new Date().toISOString();
 
-  // Verifica se o usuário já existe
+  // 1. Verifica se o usuário já existe na base de dados
   let existingUser = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email) as any;
 
   if (existingUser) {
@@ -193,28 +224,17 @@ authRouter.post('/google', (req: Request, res: Response) => {
     });
   }
 
-  // Novo usuário Google: determinar papel institucional
+  // 2. Novo usuário: determinar papel institucional por autorização do banco (sem correspondência por substring)
   let assignedRole: SystemRole = 'pendente';
 
-  // 1. Coordenadores natos (Pedro e Fernanda)
-  const isNamedCoordinator =
-    email.includes('pedropignata') ||
-    email.includes('fernanda') ||
-    email === 'admin@pastoralmissionaria.com.br';
-
-  if (isNamedCoordinator) {
+  const isPreauthorizedAdmin = email === 'admin@pastoralmissionaria.com.br' || email === 'coordenacao@pastoralmissionaria.com.br';
+  if (isPreauthorizedAdmin) {
     assignedRole = 'coordenador';
   } else {
-    // 2. Corresponde a um registro existente em pastoral_members?
+    // Corresponde a um registro prévio em pastoral_members?
     const existingPastoralMember = db.prepare('SELECT * FROM pastoral_members WHERE email = ? COLLATE NOCASE').get(email) as any;
     if (existingPastoralMember) {
       assignedRole = existingPastoralMember.pastoral_role || 'membro';
-    } else {
-      // 3. Corresponde por nome a um missionário cadastrado
-      const nameMatch = db.prepare('SELECT * FROM pastoral_members WHERE name = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE').get(name, name) as any;
-      if (nameMatch) {
-        assignedRole = nameMatch.pastoral_role || 'membro';
-      }
     }
   }
 

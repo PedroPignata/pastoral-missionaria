@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -8,57 +8,43 @@ import {
   Image as ImageIcon,
   Link as LinkIcon,
   Send,
-  MoreVertical,
   Trash2,
-  Bookmark,
   Sparkles,
   Search,
-  Filter,
   CheckCircle2,
   Video,
   ExternalLink,
-  Users,
+  X,
+  UploadCloud,
+  FileVideo,
 } from 'lucide-react';
-
-const CATEGORIES = [
-  'Todas',
-  'Partilha',
-  'Missão',
-  'Formação',
-  'Meditação',
-  'Fotografia',
-  'Indicação',
-  'Convivência',
-];
-
-const CATEGORY_STYLES: Record<string, { bg: string; text: string }> = {
-  Partilha: { bg: 'bg-amber-50', text: 'text-amber-800' },
-  Missão: { bg: 'bg-rose-50', text: 'text-rose-800' },
-  Formação: { bg: 'bg-blue-50', text: 'text-blue-800' },
-  Meditação: { bg: 'bg-purple-50', text: 'text-purple-800' },
-  Fotografia: { bg: 'bg-emerald-50', text: 'text-emerald-800' },
-  Indicação: { bg: 'bg-cyan-50', text: 'text-cyan-800' },
-  Convivência: { bg: 'bg-pink-50', text: 'text-pink-800' },
-};
 
 export const ComunidadeMissionariaView: React.FC = () => {
   const { user } = useAuth();
   const canModerate = user?.role === 'admin' || user?.role === 'coordenador';
 
   const [posts, setPosts] = useState<any[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
 
   // New Post Form State
   const [newContent, setNewContent] = useState('');
-  const [newCategory, setNewCategory] = useState('Partilha');
+  const [newCategory, setNewCategory] = useState('Geral');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
-  const [showImageInput, setShowImageInput] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // File Upload State (Fotos e Vídeos direto do celular ou computador)
+  const [attachedFile, setAttachedFile] = useState<{
+    file: File;
+    previewUrl: string;
+    base64: string;
+    mediaType: 'image' | 'video';
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Active Post Comments
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
@@ -68,7 +54,7 @@ export const ComunidadeMissionariaView: React.FC = () => {
   const loadPosts = async () => {
     setLoading(true);
     try {
-      const data = await api.getCommunityPosts(selectedCategory);
+      const data = await api.getCommunityPosts();
       setPosts(data);
     } catch (e) {
       console.error('Erro ao carregar publicações:', e);
@@ -79,33 +65,104 @@ export const ComunidadeMissionariaView: React.FC = () => {
 
   useEffect(() => {
     loadPosts();
-  }, [selectedCategory]);
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isImg = file.type.startsWith('image/');
+    const isVid = file.type.startsWith('video/');
+
+    if (!isImg && !isVid) {
+      alert('Por favor, selecione uma imagem ou um vídeo válido.');
+      return;
+    }
+
+    if (file.size > 30 * 1024 * 1024) {
+      alert('O arquivo selecionado deve ter no máximo 30MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      const previewUrl = URL.createObjectURL(file);
+      setAttachedFile({
+        file,
+        previewUrl,
+        base64,
+        mediaType: isVid ? 'video' : 'image',
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAttachment = () => {
+    if (attachedFile?.previewUrl) {
+      URL.revokeObjectURL(attachedFile.previewUrl);
+    }
+    setAttachedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleTriggerFilePicker = (type: 'image' | 'video') => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = type === 'image' ? 'image/*' : 'video/*';
+      fileInputRef.current.click();
+    }
+  };
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newContent.trim()) return;
+    const trimmed = newContent.trim();
+    if (!trimmed && !attachedFile && !newImageUrl.trim()) {
+      alert('Escreva uma mensagem ou anexe uma foto/vídeo para publicar.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
+      let finalImageUrl = newImageUrl.trim() || undefined;
+      let finalVideoUrl: string | undefined = undefined;
+
+      if (attachedFile) {
+        setIsUploading(true);
+        const uploaded = await api.uploadMedia(
+          attachedFile.base64,
+          attachedFile.file.name,
+          attachedFile.file.type
+        );
+        if (uploaded.media_type === 'video') {
+          finalVideoUrl = uploaded.url;
+        } else {
+          finalImageUrl = uploaded.url;
+        }
+      }
+
       await api.createCommunityPost({
-        content: newContent.trim(),
-        category: newCategory,
-        image_url: newImageUrl.trim() || undefined,
+        content: trimmed,
+        category: 'Geral',
+        image_url: finalImageUrl,
+        video_url: finalVideoUrl,
         link_url: newLinkUrl.trim() || undefined,
       });
 
       setNewContent('');
       setNewImageUrl('');
       setNewLinkUrl('');
-      setShowImageInput(false);
+      handleRemoveAttachment();
       setShowLinkInput(false);
-      setFeedback('Publicação compartilhada com a comunidade!');
+      setFeedback('Publicação compartilhada com a comunidade pastoral!');
       loadPosts();
       setTimeout(() => setFeedback(''), 4000);
     } catch (err: any) {
       alert('Erro ao publicar: ' + (err.message || 'Tente novamente'));
     } finally {
       setIsSubmitting(false);
+      setIsUploading(false);
     }
   };
 
@@ -242,31 +299,63 @@ export const ComunidadeMissionariaView: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold text-pastoral-cafe leading-tight">
-              {user?.name || 'Missionário(a)'}
+              Compartilhe algo com a Pastoral
             </p>
-            <p className="text-[10px] text-zinc-400">O que Deus tem colocado em seu coração para partilhar?</p>
+            <p className="text-[10px] text-zinc-400">
+              Partilhe uma reflexão, oração, fotos de uma missão, pedido de intercessão ou aviso fraterno...
+            </p>
           </div>
         </div>
 
         <textarea
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
-          placeholder="Escreva uma reflexão, meditação, passagem bíblica, testemunho ou registro de missão..."
+          placeholder="Escreva sua mensagem (ou anexe diretamente uma foto/vídeo)..."
           rows={3}
           className="w-full text-xs p-3 rounded-2xl border border-zinc-200 focus:ring-2 focus:ring-pastoral-dourado focus:border-pastoral-dourado resize-none"
-          required
         />
 
-        {showImageInput && (
-          <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded-xl border border-zinc-200">
-            <ImageIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <input
-              type="url"
-              value={newImageUrl}
-              onChange={(e) => setNewImageUrl(e.target.value)}
-              placeholder="Cole o link da imagem/foto (ex: https://...)"
-              className="w-full text-xs bg-transparent border-none focus:outline-none"
-            />
+        {/* Input Oculto de Arquivo */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
+        {/* Pré-visualização do Anexo Local */}
+        {attachedFile && (
+          <div className="relative p-2.5 bg-zinc-50 rounded-2xl border border-zinc-200 flex items-center gap-3">
+            <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-900/10 flex-shrink-0 flex items-center justify-center border border-zinc-200">
+              {attachedFile.mediaType === 'image' ? (
+                <img
+                  src={attachedFile.previewUrl}
+                  alt="Pré-visualização"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-zinc-600">
+                  <FileVideo className="w-6 h-6 text-pastoral-dourado" />
+                  <span className="text-[8px] font-bold uppercase mt-0.5">Vídeo</span>
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-pastoral-cafe truncate">
+                {attachedFile.file.name}
+              </p>
+              <p className="text-[10px] text-zinc-400">
+                {(attachedFile.file.size / (1024 * 1024)).toFixed(1)} MB • Pronto para envio
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveAttachment}
+              className="p-1.5 rounded-lg bg-zinc-200 hover:bg-rose-100 text-zinc-500 hover:text-rose-600 transition-colors"
+              title="Remover anexo"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
@@ -277,7 +366,7 @@ export const ComunidadeMissionariaView: React.FC = () => {
               type="url"
               value={newLinkUrl}
               onChange={(e) => setNewLinkUrl(e.target.value)}
-              placeholder="Cole o link (YouTube, artigo, livro ou documento...)"
+              placeholder="Cole o link (YouTube, artigo, oração...)"
               className="w-full text-xs bg-transparent border-none focus:outline-none"
             />
           </div>
@@ -285,83 +374,71 @@ export const ComunidadeMissionariaView: React.FC = () => {
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-2">
-            <select
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              className="px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 bg-zinc-50 text-pastoral-cafe"
+            <button
+              type="button"
+              onClick={() => handleTriggerFilePicker('image')}
+              className="px-2.5 py-1.5 rounded-xl border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 flex items-center gap-1.5 transition-colors"
+              title="Anexar foto do celular ou computador"
             >
-              {CATEGORIES.filter((c) => c !== 'Todas').map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
+              <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Foto</span>
+            </button>
 
             <button
               type="button"
-              onClick={() => setShowImageInput(!showImageInput)}
-              className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
-                showImageInput
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                  : 'bg-white text-zinc-500 hover:bg-zinc-100 border-zinc-200'
-              }`}
-              title="Inserir foto/imagem"
+              onClick={() => handleTriggerFilePicker('video')}
+              className="px-2.5 py-1.5 rounded-xl border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 flex items-center gap-1.5 transition-colors"
+              title="Anexar vídeo do celular ou computador"
             >
-              <ImageIcon className="w-4 h-4" />
+              <Video className="w-3.5 h-3.5 text-rose-600" />
+              <span>Vídeo</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowLinkInput(!showLinkInput)}
-              className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors ${
+              className={`p-1.5 rounded-xl border text-xs flex items-center gap-1 transition-colors ${
                 showLinkInput
                   ? 'bg-blue-50 text-blue-700 border-blue-300'
-                  : 'bg-white text-zinc-500 hover:bg-zinc-100 border-zinc-200'
+                  : 'bg-white text-zinc-500 hover:bg-zinc-50 border-zinc-200'
               }`}
-              title="Inserir link ou vídeo"
+              title="Inserir link externo ou YouTube"
             >
-              <LinkIcon className="w-4 h-4" />
+              <LinkIcon className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <button
             type="submit"
-            disabled={isSubmitting || !newContent.trim()}
+            disabled={isSubmitting || (!newContent.trim() && !attachedFile && !newImageUrl.trim())}
             className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 shadow-gold transition-all disabled:opacity-50 flex items-center gap-1.5 active:scale-95"
           >
-            <Send className="w-3.5 h-3.5" />
-            <span>Publicar</span>
+            {isUploading ? (
+              <>
+                <UploadCloud className="w-3.5 h-3.5 animate-pulse" />
+                <span>Enviando mídia...</span>
+              </>
+            ) : isSubmitting ? (
+              <span>Publicando...</span>
+            ) : (
+              <>
+                <Send className="w-3.5 h-3.5" />
+                <span>Publicar</span>
+              </>
+            )}
           </button>
         </div>
       </form>
 
-      {/* Category Pills Filter */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-              selectedCategory === cat
-                ? 'bg-pastoral-cafe text-white font-bold shadow-2xs'
-                : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
       {/* 33. Feed de Publicações */}
       {filteredPosts.length === 0 ? (
         <div className="bg-white p-12 rounded-3xl border border-zinc-200/80 shadow-xs text-center text-zinc-400 text-xs space-y-1">
-          <p>Nenhuma publicação encontrada nesta categoria.</p>
+          <p>Nenhuma publicação encontrada.</p>
           <p className="text-[11px] text-zinc-400">Seja o primeiro a partilhar uma mensagem com os missionários!</p>
         </div>
       ) : (
         <div className="space-y-4">
           {filteredPosts.map((post) => {
-            const catStyle = CATEGORY_STYLES[post.category] || { bg: 'bg-zinc-100', text: 'text-zinc-700' };
             const youtubeEmbed = getYouTubeEmbedUrl(post.link_url);
             const isAuthor = post.author_id === user?.id;
             const comments = commentsMap[post.id] || [];
@@ -382,9 +459,11 @@ export const ComunidadeMissionariaView: React.FC = () => {
                         {post.author_name}
                       </h4>
                       <div className="flex items-center gap-2 pt-0.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
-                          {post.category}
-                        </span>
+                        {post.category && post.category !== 'Geral' && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700`}>
+                            {post.category}
+                          </span>
+                        )}
                         <span className="text-[11px] text-zinc-400">
                           {new Date(post.created_at).toLocaleDateString('pt-BR', {
                             day: 'numeric',
@@ -409,9 +488,23 @@ export const ComunidadeMissionariaView: React.FC = () => {
                 </div>
 
                 {/* Content */}
-                <p className="text-xs sm:text-sm text-pastoral-grafite leading-relaxed whitespace-pre-line">
-                  {post.content}
-                </p>
+                {post.content && (
+                  <p className="text-xs sm:text-sm text-pastoral-grafite leading-relaxed whitespace-pre-line">
+                    {post.content}
+                  </p>
+                )}
+
+                {/* Optional Direct Video Upload */}
+                {post.video_url && (
+                  <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-black aspect-video flex items-center justify-center max-h-96">
+                    <video
+                      src={post.video_url}
+                      controls
+                      playsInline
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                )}
 
                 {/* Optional Image */}
                 {post.image_url && (

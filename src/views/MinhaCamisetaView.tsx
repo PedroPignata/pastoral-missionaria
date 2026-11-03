@@ -37,11 +37,18 @@ export const MinhaCamisetaView: React.FC<MinhaCamisetaViewProps> = ({ orders }) 
       setSelectedOrderId(orders[0].id);
     }
     api
-      .getInstitutionalSettings()
+      .getPixSettings()
       .then((s) => {
         if (s?.pix_key) setPixKey(s.pix_key);
       })
-      .catch(() => {});
+      .catch(() => {
+        api
+          .getInstitutionalSettings()
+          .then((s) => {
+            if (s?.pix_key) setPixKey(s.pix_key);
+          })
+          .catch(() => {});
+      });
   }, [orders, selectedOrderId]);
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId) || orders[0];

@@ -405,7 +405,28 @@ export const api = {
     return handleResponse<{ themes: any[]; labs: any[]; evaluations: any[] }>(res);
   },
 
-  async drawLabThemes(data: { title: string; lab_date: string; duration_minutes: number; speakers: string[]; notes?: string; draw_mode?: string }) {
+  async getLabDraws() {
+    const res = await fetch(`${API_BASE}/platform/labs/draws`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async archiveLabDraw(id: string) {
+    const res = await fetch(`${API_BASE}/platform/labs/draws/${id}/archive`, {
+      method: 'PATCH',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async deleteLabDraw(id: string) {
+    const res = await fetch(`${API_BASE}/platform/labs/draws/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async drawLabThemes(data: { title: string; lab_date: string; duration_minutes: number; speakers: string[]; notes?: string; draw_mode?: string; allow_repeat?: boolean }) {
     const res = await fetch(`${API_BASE}/platform/labs/draw`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -544,7 +565,7 @@ export const api = {
     return handleResponse<any[]>(res);
   },
 
-  async createCommunityPost(data: { content: string; category?: string; image_url?: string; link_url?: string }) {
+  async createCommunityPost(data: { content: string; category?: string; image_url?: string; video_url?: string; link_url?: string }) {
     const res = await fetch(`${API_BASE}/community/posts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -644,10 +665,33 @@ export const api = {
   async saveGoogleClientId(client_id: string) {
     const res = await fetch(`${API_BASE}/auth/google-client-id`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ client_id }),
     });
     return handleResponse<{ message: string; googleClientId: string }>(res);
+  },
+
+  async uploadMedia(fileBase64: string, fileName: string, mimeType: string) {
+    const res = await fetch(`${API_BASE}/community/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ file_base64: fileBase64, file_name: fileName, mime_type: mimeType }),
+    });
+    return handleResponse<{ url: string; media_type: 'image' | 'video'; file_name: string }>(res);
+  },
+
+  async getPixSettings() {
+    const res = await fetch(`${API_BASE}/settings/pix`, { headers: getAuthHeader() });
+    return handleResponse<{ pix_key: string; key_type: string; receiver_name: string; instructions: string }>(res);
+  },
+
+  async updatePixSettings(data: { pix_key: string; key_type?: string; receiver_name?: string; instructions?: string }) {
+    const res = await fetch(`${API_BASE}/settings/pix`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
   },
 };
 

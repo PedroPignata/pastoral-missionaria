@@ -14,7 +14,7 @@ settingsRouter.get('/institutional', authenticateToken, (_req: AuthenticatedRequ
 });
 
 // PUT /api/settings/institutional
-settingsRouter.put('/institutional', authenticateToken, requireRole(['admin']), (req: AuthenticatedRequest, res: Response) => {
+settingsRouter.put('/institutional', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO integration_settings (key, value_json, updated_at)
@@ -22,7 +22,70 @@ settingsRouter.put('/institutional', authenticateToken, requireRole(['admin']), 
     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
   `).run('institutional', JSON.stringify(req.body), now);
 
+  if (req.body.pix_key) {
+    const existingPix = db.prepare('SELECT value_json FROM integration_settings WHERE key = ?').get('pix_payment') as any;
+    const currentPix = existingPix ? JSON.parse(existingPix.value_json) : {};
+    currentPix.pix_key = req.body.pix_key.trim();
+    currentPix.updated_at = now;
+    db.prepare(`
+      INSERT INTO integration_settings (key, value_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `).run('pix_payment', JSON.stringify(currentPix), now);
+  }
+
   return res.json({ message: 'Configurações institucionais salvas com sucesso.' });
+});
+
+// GET /api/settings/pix (Consulta pública de Pix para membros e pedidos)
+settingsRouter.get('/pix', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
+  const row = db.prepare('SELECT value_json FROM integration_settings WHERE key = ?').get('pix_payment') as any;
+  if (!row) {
+    return res.json({
+      pix_key: 'pastoralmissionaria@agape.org.br',
+      key_type: 'email',
+      receiver_name: 'Pastoral Missionária — Paróquia São Vicente de Paulo',
+      instructions: 'Após realizar o Pix, envie o comprovante para a coordenação para registrar a baixa do seu pedido.',
+    });
+  }
+  return res.json(JSON.parse(row.value_json));
+});
+
+// PUT /api/settings/pix (Apenas coordenadores e admins autorizados)
+settingsRouter.put('/pix', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { pix_key, key_type, receiver_name, instructions } = req.body;
+  if (!pix_key || !pix_key.trim()) {
+    return res.status(400).json({ error: 'A chave Pix é obrigatória.' });
+  }
+
+  const now = new Date().toISOString();
+  const pixData = {
+    pix_key: pix_key.trim(),
+    key_type: key_type || 'outro',
+    receiver_name: receiver_name?.trim() || 'Pastoral Missionária — Paróquia São Vicente de Paulo',
+    instructions: instructions?.trim() || 'Após realizar o Pix, envie o comprovante para a coordenação para registrar a baixa do seu pedido.',
+    updated_by: req.user?.name,
+    updated_at: now,
+  };
+
+  db.prepare(`
+    INSERT INTO integration_settings (key, value_json, updated_at)
+    VALUES ('pix_payment', ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+  `).run(JSON.stringify(pixData), now);
+
+  // Também sincroniza com institutional para consistência geral
+  try {
+    const instRow = db.prepare('SELECT value_json FROM integration_settings WHERE key = ?').get('institutional') as any;
+    if (instRow) {
+      const inst = JSON.parse(instRow.value_json);
+      inst.pix_key = pix_key.trim();
+      db.prepare('UPDATE integration_settings SET value_json = ?, updated_at = ? WHERE key = ?')
+        .run(JSON.stringify(inst), now, 'institutional');
+    }
+  } catch {}
+
+  return res.json({ message: 'Configurações de Pix salvas com sucesso!', pix: pixData });
 });
 
 // GET /api/settings/backup/export

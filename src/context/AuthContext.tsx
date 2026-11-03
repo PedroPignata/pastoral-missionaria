@@ -66,8 +66,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const isAdmin = user?.role === 'admin';
-  const isCoordinator = user?.role === 'coordenador' || isAdmin;
+  const isAdmin = user?.role === 'admin' || user?.role === 'coordenador';
+  const isCoordinator = user?.role === 'coordenador' || user?.role === 'admin';
   const isPending = user?.role === 'pendente';
   const canEdit = isCoordinator || user?.role === 'delegado';
 

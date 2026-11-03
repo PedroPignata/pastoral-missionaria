@@ -232,6 +232,20 @@ platformRouter.get('/labs', authenticateToken, (_req: AuthenticatedRequest, res:
   return res.json({ themes, labs, evaluations });
 });
 
+// GET /api/platform/labs/draws (Histórico dedicado de sorteios)
+platformRouter.get('/labs/draws', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
+  const draws = db.prepare(`
+    SELECT * FROM lab_draws
+    WHERE status != 'excluido'
+    ORDER BY created_at DESC
+  `).all().map((d: any) => ({
+    ...d,
+    participants: JSON.parse(d.participants_json || '[]'),
+    rules: JSON.parse(d.rules_json || '{}'),
+  }));
+  return res.json(draws);
+});
+
 // Fisher-Yates unbiased shuffle
 function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array];
@@ -243,13 +257,24 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
-  const { title, lab_date, duration_minutes = 15, speakers, notes, draw_mode = 'order_and_theme' } = req.body;
+  const { title, lab_date, duration_minutes = 20, speakers, notes, draw_mode = 'order_and_theme', allow_repeat = false } = req.body;
 
   if (!Array.isArray(speakers) || speakers.length === 0) {
     return res.status(400).json({ error: 'Informe ao menos um missionário/palestrante para realizar o sorteio.' });
   }
 
   const themes = db.prepare('SELECT * FROM lab_themes WHERE active = 1 ORDER BY theme_number ASC').all() as any[];
+
+  // Regra especial para 20 participantes (ou quando participantes superarem temas disponíveis):
+  if (draw_mode === 'order_and_theme' && speakers.length > themes.length && !allow_repeat) {
+    return res.status(409).json({
+      error: `Existem ${speakers.length} participantes selecionados, mas apenas ${themes.length} temas disponíveis. Deseja adicionar mais um tema ou autorizar a repetição com confirmação?`,
+      needs_repeat_confirmation: true,
+      participants_count: speakers.length,
+      available_themes_count: themes.length,
+    });
+  }
+
   const shuffledSpeakers = shuffleArray(speakers);
   const shuffledThemes = shuffleArray(themes);
 
@@ -260,7 +285,7 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
         speaker_name: speakerName,
         theme_number: null,
         theme_title: 'Tema Livre / A Definir',
-        duration_minutes: Number(duration_minutes) || 15,
+        duration_minutes: Number(duration_minutes) || 20,
       };
     }
     const theme = shuffledThemes[idx % shuffledThemes.length];
@@ -269,33 +294,82 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
       speaker_name: speakerName,
       theme_number: theme.theme_number,
       theme_title: theme.title,
-      duration_minutes: Number(duration_minutes) || 15,
+      duration_minutes: Number(duration_minutes) || 20,
     };
   });
 
   const labId = 'lab_' + crypto.randomBytes(6).toString('hex');
+  const drawId = 'draw_' + crypto.randomBytes(6).toString('hex');
   const now = new Date().toISOString();
+  const coordinatorName = req.user?.name || 'Coordenação (Pedro e Fernanda)';
+  const labTitle = title?.trim() || `Laboratório de Pregação — ${lab_date || now.split('T')[0]}`;
+  const labDateStr = lab_date || now.split('T')[0];
 
+  // Grava em preaching_labs para manter compatibilidade
   db.prepare(`
     INSERT INTO preaching_labs (id, title, lab_date, duration_minutes, status, draw_results_json, notes, created_at)
     VALUES (?, ?, ?, ?, 'planejado', ?, ?, ?)
   `).run(
     labId,
-    title?.trim() || `Laboratório de Pregação — ${lab_date || now.split('T')[0]}`,
-    lab_date || now.split('T')[0],
-    Number(duration_minutes) || 15,
+    labTitle,
+    labDateStr,
+    Number(duration_minutes) || 20,
     JSON.stringify(drawResults),
     notes?.trim() || '',
     now
   );
 
+  // Grava na tabela dedicada lab_draws para histórico auditável
+  const rules = {
+    draw_mode,
+    allow_repeat: speakers.length > themes.length ? allow_repeat : false,
+    duration_minutes: Number(duration_minutes) || 20,
+  };
+
+  db.prepare(`
+    INSERT INTO lab_draws (
+      id, laboratory_date, laboratory_name, coordinator_name, draw_date,
+      duration_minutes, participants_count, participants_json, rules_json, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativo', ?, ?)
+  `).run(
+    drawId,
+    labDateStr,
+    labTitle,
+    coordinatorName,
+    now.split('T')[0],
+    Number(duration_minutes) || 20,
+    speakers.length,
+    JSON.stringify(drawResults),
+    JSON.stringify(rules),
+    now,
+    now
+  );
+
   return res.status(201).json({
     id: labId,
+    draw_id: drawId,
     draw_results: drawResults,
+    duration_minutes: Number(duration_minutes) || 20,
     message: draw_mode === 'order_only'
       ? 'Sorteio da ordem de pregação realizado com sucesso!'
       : 'Sorteio de temas e ordem de apresentação realizado com sucesso!',
   });
+});
+
+// PATCH /api/platform/labs/draws/:id/archive (Arquivar sorteio)
+platformRouter.patch('/labs/draws/:id/archive', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE lab_draws SET status = 'arquivado', updated_at = ? WHERE id = ?").run(now, id);
+  return res.json({ message: 'Sorteio arquivado com sucesso!' });
+});
+
+// DELETE /api/platform/labs/draws/:id (Exclusão lógica do sorteio)
+platformRouter.delete('/labs/draws/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE lab_draws SET status = 'excluido', updated_at = ? WHERE id = ?").run(now, id);
+  return res.json({ message: 'Sorteio removido do histórico com sucesso!' });
 });
 
 // CRUD de Temas de Laboratório (Seção 28)
@@ -429,7 +503,10 @@ platformRouter.post('/labs/evaluate', authenticateToken, (req: AuthenticatedRequ
 
 // 5. MISSION DISPATCH CENTER (/api/platform/dispatches)
 platformRouter.get('/dispatches', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
-  const list = db.prepare('SELECT * FROM dispatch_requests ORDER BY created_at DESC').all();
+  const list = db.prepare('SELECT * FROM dispatch_requests ORDER BY created_at DESC').all().map((d: any) => ({
+    ...d,
+    companions: JSON.parse(d.companions_json || '[]'),
+  }));
   return res.json(list);
 });
 
@@ -447,6 +524,7 @@ platformRouter.post('/dispatches', authenticateToken, (req: AuthenticatedRequest
     theme,
     recipient,
     notes,
+    companions,
   } = req.body;
 
   if (!requester_name || !event_name || !event_date || !role_function) {
@@ -455,13 +533,14 @@ platformRouter.post('/dispatches', authenticateToken, (req: AuthenticatedRequest
 
   const id = 'env_' + crypto.randomBytes(6).toString('hex');
   const now = new Date().toISOString();
+  const companionsList = Array.isArray(companions) ? companions : [];
 
   db.prepare(`
     INSERT INTO dispatch_requests (
       id, requester_name, pastoral_member_id, event_name, event_date, event_time,
       location, organization, participation_type, role_function, theme,
-      recipient, status, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aguardando análise', ?, ?, ?)
+      recipient, status, notes, companions_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aguardando análise', ?, ?, ?, ?)
   `).run(
     id,
     requester_name.trim(),
@@ -476,28 +555,35 @@ platformRouter.post('/dispatches', authenticateToken, (req: AuthenticatedRequest
     theme?.trim() || '',
     recipient || 'Coordenação (Pedro e Fernanda)',
     notes?.trim() || '',
+    JSON.stringify(companionsList),
     now,
     now
   );
 
   const dateFormatted = event_date.split('-').reverse().join('/');
+  const companionNames = companionsList
+    .map((c: any) => (typeof c === 'string' ? c : c.name))
+    .filter(Boolean);
+  const companionsSection = companionNames.length > 0
+    ? `• *Acompanhado(a) por:* ${companionNames.join(', ')}\n`
+    : '';
+
   const whatsappText =
     `Paz e bem, ${recipient || 'Pedro e Fernanda'}! 🙏🕊️\n\n` +
-    `Gostaria de solicitar o *Envio Missionário* pela Pastoral Missionária:\n\n` +
+    `Gostaria de solicitar o *Envio Missionário* para a missão *${event_name.trim()}*, que acontecerá no dia *${dateFormatted}*${event_time ? ` às ${event_time}` : ''}.\n\n` +
     `• *Missionário(a):* ${requester_name.trim()}\n` +
-    `• *Evento/Missão:* ${event_name.trim()}\n` +
-    `• *Data:* ${dateFormatted}${event_time ? ` às ${event_time}` : ''}\n` +
-    `• *Local/Grupo:* ${organization || 'Paróquia'}${location ? ` (${location})` : ''}\n` +
     `• *Função:* ${role_function}\n` +
+    `• *Local/Grupo:* ${organization || 'Paróquia'}${location ? ` (${location})` : ''}\n` +
+    companionsSection +
     (theme ? `• *Tema:* ${theme.trim()}\n` : '') +
     (notes ? `• *Observações:* ${notes.trim()}\n` : '') +
-    `\nAguardo a análise e bênção da coordenação. "Uma só coisa é necessária: Estar perto de Jesus!"`;
+    `\nAguardo a orientação e autorização da coordenação.\n\n"Uma só coisa é necessária: Estar perto de Jesus!" — São Padre Pio`;
 
   return res.status(201).json({
     id,
     whatsappText,
     waLink: `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}`,
-    message: 'Solicitação de envio registrada! Você pode revisar e abrir a mensagem para a coordenação no WhatsApp.',
+    message: 'Solicitação de envio registrada com sucesso! Você pode revisar e enviar a mensagem no WhatsApp.',
   });
 });
 
@@ -520,8 +606,8 @@ platformRouter.patch('/dispatches/:id/status', authenticateToken, requireRole(['
   return res.json({ message: `Status do envio atualizado para "${status}".` });
 });
 
-// 6. TEMPLATES & ANNOUNCEMENTS
-platformRouter.get('/templates', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
+// 6. TEMPLATES & ANNOUNCEMENTS (Modelos restritos exclusivamente a Coordenadores e Delegados)
+platformRouter.get('/templates', authenticateToken, requireRole(['admin', 'coordenador', 'delegado']), (_req: AuthenticatedRequest, res: Response) => {
   const rows = db.prepare('SELECT * FROM event_templates ORDER BY title ASC').all().map((t: any) => ({
     ...t,
     schedule: JSON.parse(t.schedule_json || '[]'),

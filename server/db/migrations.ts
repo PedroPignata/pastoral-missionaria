@@ -490,6 +490,73 @@ export function runMigrations() {
     console.log('✓ Migração 002_user_roles_and_google_auth aplicada com sucesso.');
   }
 
+  // Migration 003: Lab Draws History, Mission Companions, Community Media & Pix
+  if (!applied.has('003_lab_draws_companions_and_persistence')) {
+    const migrate003 = db.transaction(() => {
+      // 1. Tabela dedicada para Histórico de Sorteios dos Laboratórios
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS lab_draws (
+          id TEXT PRIMARY KEY,
+          laboratory_date TEXT NOT NULL,
+          laboratory_name TEXT NOT NULL,
+          coordinator_name TEXT NOT NULL,
+          draw_date TEXT NOT NULL,
+          duration_minutes INTEGER NOT NULL DEFAULT 20,
+          participants_count INTEGER NOT NULL,
+          participants_json TEXT NOT NULL,
+          rules_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'ativo' CHECK(status IN ('ativo', 'arquivado', 'excluido')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      // 2. Coluna de Acompanhantes em dispatch_requests
+      const dispatchCols = (db.prepare('PRAGMA table_info(dispatch_requests)').all() as any[]).map((c) => c.name);
+      if (!dispatchCols.includes('companions_json')) {
+        db.exec("ALTER TABLE dispatch_requests ADD COLUMN companions_json TEXT NOT NULL DEFAULT '[]';");
+      }
+
+      // 3. Coluna de Vídeo em community_posts
+      const postCols = (db.prepare('PRAGMA table_info(community_posts)').all() as any[]).map((c) => c.name);
+      if (!postCols.includes('video_url')) {
+        db.exec('ALTER TABLE community_posts ADD COLUMN video_url TEXT;');
+      }
+
+      // 4. Pré-autorizar Coordenador Pedro (pedropignata2@gmail.com) no banco
+      db.prepare(`
+        INSERT INTO users (id, name, email, role, created_at, updated_at)
+        VALUES ('user_pedro_coordinator', 'Pedro Rafael', 'pedropignata2@gmail.com', 'coordenador', datetime('now'), datetime('now'))
+        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
+      `).run();
+
+      // 5. Configuração padrão de Pix em integration_settings
+      const existingPix = db.prepare("SELECT value_json FROM integration_settings WHERE key = 'pix_payment'").get();
+      if (!existingPix) {
+        db.prepare(`
+          INSERT INTO integration_settings (key, value_json, updated_at)
+          VALUES ('pix_payment', ?, datetime('now'))
+        `).run(
+          JSON.stringify({
+            pix_key: 'pastoralmissionaria@agape.org.br',
+            key_type: 'email',
+            receiver_name: 'Pastoral Missionária — Paróquia São Vicente de Paulo',
+            instructions: 'Após realizar o Pix, envie o comprovante para a coordenação (Pedro ou Fernanda) registrar a baixa do seu pedido.',
+          })
+        );
+      }
+
+      // 6. Registrar migração
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('003_lab_draws_companions_and_persistence', 'Histórico de sorteios, acompanhantes em missões, suporte a vídeo na comunidade e chave Pix configurável', datetime('now'))
+      `).run();
+    });
+
+    migrate003();
+    console.log('✓ Migração 003_lab_draws_companions_and_persistence aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
