@@ -29,20 +29,24 @@ async function runPhase1Tests() {
   assert.strictEqual(orderStats.total_cents, 85500, 'Valor total deve continuar sendo R$ 855,00 (85500 centavos)');
   console.log('✓ [TESTE 1] Preservação integral dos 19 pedidos de camisetas (R$ 855,00): PASSOU');
 
-  // 3. Test 2027 Calendar (26 Events + Idempotent Re-import + Empty November)
-  const calCountBefore = (db.prepare('SELECT COUNT(*) as c FROM calendar_events').get() as any).c;
-  assert.strictEqual(calCountBefore, 26, 'Deve possuir os 26 eventos oficiais do PDF de 2027');
+  // 3. Test 2027 Calendar (26 Events + Idempotent Re-import + Empty November 2027)
+  const cal2027CountBefore = (
+    db.prepare("SELECT COUNT(*) as c FROM calendar_events WHERE strftime('%Y', event_date) = '2027'").get() as any
+  ).c;
+  assert.strictEqual(cal2027CountBefore, 26, 'Deve possuir os 26 eventos oficiais do PDF de 2027');
 
   // Run migrations/seed again to verify idempotency
   runMigrations();
-  const calCountAfter = (db.prepare('SELECT COUNT(*) as c FROM calendar_events').get() as any).c;
-  assert.strictEqual(calCountAfter, 26, 'Reimportação deve ser idempotente sem duplicar eventos');
-
-  const novEvents = (
-    db.prepare("SELECT COUNT(*) as c FROM calendar_events WHERE strftime('%m', event_date) = '11'").get() as any
+  const cal2027CountAfter = (
+    db.prepare("SELECT COUNT(*) as c FROM calendar_events WHERE strftime('%Y', event_date) = '2027'").get() as any
   ).c;
-  assert.strictEqual(novEvents, 0, 'Novembro não deve possuir eventos inventados');
-  console.log('✓ [TESTE 2] Calendário 2027 (26 eventos oficiais, idempotência e Novembro vazio): PASSOU');
+  assert.strictEqual(cal2027CountAfter, 26, 'Reimportação deve ser idempotente sem duplicar eventos');
+
+  const nov2027Events = (
+    db.prepare("SELECT COUNT(*) as c FROM calendar_events WHERE strftime('%Y-%m', event_date) = '2027-11'").get() as any
+  ).c;
+  assert.strictEqual(nov2027Events, 0, 'Novembro de 2027 não deve possuir eventos inventados');
+  console.log('✓ [TESTE 2] Calendário 2027 (26 eventos oficiais, idempotência e Novembro/2027 vazio): PASSOU');
 
   // 4. Test 19 Official Laboratory Themes & 7 Official Templates
   const themesCount = (db.prepare('SELECT COUNT(*) as c FROM lab_themes').get() as any).c;

@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   Bookmark,
   Users,
+  Cake,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface PainelMissionarioViewProps {
@@ -39,19 +42,36 @@ export const PainelMissionarioView: React.FC<PainelMissionarioViewProps> = ({
   const [annTitle, setAnnTitle] = useState('');
   const [annContent, setAnnContent] = useState('');
   const [annCategory, setAnnCategory] = useState('Aviso Importante');
+  const [birthdays, setBirthdays] = useState<{ today: any[]; month: any[] }>({ today: [], month: [] });
+  const [copiedBirthdayId, setCopiedBirthdayId] = useState<string | null>(null);
 
   const canManage = user?.role === 'admin' || user?.role === 'coordenador';
 
   const loadOverview = async () => {
     setLoading(true);
     try {
-      const data = await api.getPlatformOverview();
+      const [data, bdays] = await Promise.all([
+        api.getPlatformOverview(),
+        api.getMemberBirthdays().catch(() => ({ today: [], this_month: [], all_celebrants: [], current_date: { day: 1, month: 1, year: 2026 } })),
+      ]);
       setOverview(data);
+      setBirthdays({
+        today: (bdays as any).today || [],
+        month: (bdays as any).this_month || [],
+      });
     } catch (e) {
       console.error('Erro ao carregar visão geral:', e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCopyGreeting = (celebrant: any) => {
+    const name = celebrant.display_name || celebrant.name;
+    const text = `🎉 Paz e Bem, ${name}! Em nome da Pastoral Missionária — Ágape Jovens, louvamos a Deus pelo dom da sua vida! Que o Senhor derrame infinitas bênçãos e que nosso padroeiro São Padre Pio guarde sempre seu ministério e sua caminhada de fé. Feliz Aniversário! 🎂🙏✨`;
+    navigator.clipboard.writeText(text);
+    setCopiedBirthdayId(celebrant.id);
+    setTimeout(() => setCopiedBirthdayId(null), 3000);
   };
 
   useEffect(() => {
@@ -156,6 +176,62 @@ export const PainelMissionarioView: React.FC<PainelMissionarioViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Homenagem aos Aniversariantes de Hoje */}
+      {birthdays.today.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/15 via-pastoral-dourado/20 to-amber-500/10 border-2 border-pastoral-dourado/50 rounded-3xl p-5 shadow-xs space-y-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-pastoral-dourado text-pastoral-profundo flex items-center justify-center shadow-xs">
+              <Cake className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <span>🎉 Louvor a Deus! Hoje é Aniversário na Pastoral!</span>
+              </h3>
+              <p className="text-xs text-pastoral-vinho font-medium">
+                "O Senhor te abençoe e te guarde!" — Intercessão especial de São Padre Pio
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+            {birthdays.today.map((cel) => (
+              <div
+                key={cel.id}
+                className="bg-white/95 rounded-2xl p-3.5 border border-pastoral-dourado/40 shadow-xs flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <h4 className="font-serif font-bold text-sm text-pastoral-cafe truncate">
+                    {cel.display_name || cel.name}
+                  </h4>
+                  <span className="text-[11px] text-zinc-500">
+                    {cel.pastoral_role === 'coordenador' ? 'Coordenador(a)' : 'Missionário(a)'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyGreeting(cel)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-pastoral-cafe text-pastoral-dourado-claro hover:bg-pastoral-profundo flex items-center gap-1.5 shadow-2xs transition-colors flex-shrink-0"
+                  title="Copiar mensagem fraterna para WhatsApp"
+                >
+                  {copiedBirthdayId === cel.id ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Felicitar WhatsApp</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 21. Atalhos Rápidos e Úteis */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
@@ -428,6 +504,56 @@ export const PainelMissionarioView: React.FC<PainelMissionarioViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Seção Aniversariantes Deste Mês */}
+      {birthdays.month.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 border border-zinc-200/80 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+            <div className="flex items-center gap-2">
+              <Cake className="w-4.5 h-4.5 text-pastoral-dourado" />
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe">
+                Aniversariantes Deste Mês
+              </h3>
+            </div>
+            <span className="text-xs text-zinc-400 font-medium">
+              {birthdays.month.length} missionário(s) celebrando a vida
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {birthdays.month.map((cel) => (
+              <div
+                key={cel.id}
+                className="p-3 rounded-2xl bg-pastoral-creme/30 border border-pastoral-dourado/20 flex items-center justify-between gap-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-pastoral-cafe truncate">
+                      {cel.display_name || cel.name}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-pastoral-vinho font-semibold">
+                    Dia {String(cel.birth_day).padStart(2, '0')}/{String(cel.birth_month).padStart(2, '0')}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyGreeting(cel)}
+                  className="p-2 rounded-xl text-pastoral-cafe hover:bg-pastoral-dourado/20 transition-colors"
+                  title="Copiar mensagem fraterna para WhatsApp"
+                >
+                  {copiedBirthdayId === cel.id ? (
+                    <Check className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-pastoral-dourado" />
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

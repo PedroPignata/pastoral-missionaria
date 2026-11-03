@@ -530,6 +530,10 @@ export function runMigrations() {
         ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
       `).run();
 
+      // Ensure pastoral_members records have coordinator emails
+      db.prepare("UPDATE pastoral_members SET email = 'pedropignata2@gmail.com' WHERE id = 'pmem_pedro'").run();
+      db.prepare("UPDATE pastoral_members SET email = 'fernandasouto7826@gmail.com' WHERE id = 'pmem_fernanda'").run();
+
       // 5. Configuração padrão de Pix em integration_settings
       const existingPix = db.prepare("SELECT value_json FROM integration_settings WHERE key = 'pix_payment'").get();
       if (!existingPix) {
@@ -555,6 +559,192 @@ export function runMigrations() {
 
     migrate003();
     console.log('✓ Migração 003_lab_draws_companions_and_persistence aplicada com sucesso.');
+  }
+
+  // Migration 004: Ecosystem Master 4.0 - Member Management, Dynamic Birthdays, Lab Groups & 2026 Events
+  if (!applied.has('004_master_4_0_ecosystem_evolution')) {
+    const migrate004 = db.transaction(() => {
+      // 1. lab_themes: add description column if missing
+      const labThemeCols = (db.prepare('PRAGMA table_info(lab_themes)').all() as any[]).map((c) => c.name);
+      if (!labThemeCols.includes('description')) {
+        db.exec('ALTER TABLE lab_themes ADD COLUMN description TEXT;');
+      }
+
+      // 2. pastoral_members: add birth_day, birth_month, birth_year, birthday_visibility, notes
+      const pastoralCols = (db.prepare('PRAGMA table_info(pastoral_members)').all() as any[]).map((c) => c.name);
+      if (!pastoralCols.includes('birth_day')) {
+        db.exec('ALTER TABLE pastoral_members ADD COLUMN birth_day INTEGER;');
+      }
+      if (!pastoralCols.includes('birth_month')) {
+        db.exec('ALTER TABLE pastoral_members ADD COLUMN birth_month INTEGER;');
+      }
+      if (!pastoralCols.includes('birth_year')) {
+        db.exec('ALTER TABLE pastoral_members ADD COLUMN birth_year INTEGER;');
+      }
+      if (!pastoralCols.includes('birthday_visibility')) {
+        db.exec("ALTER TABLE pastoral_members ADD COLUMN birthday_visibility TEXT NOT NULL DEFAULT 'members';");
+      }
+      if (!pastoralCols.includes('notes')) {
+        db.exec('ALTER TABLE pastoral_members ADD COLUMN notes TEXT;');
+      }
+
+      // 3. lab_draws: add groups_json if missing
+      const labDrawCols = (db.prepare('PRAGMA table_info(lab_draws)').all() as any[]).map((c) => c.name);
+      if (!labDrawCols.includes('groups_json')) {
+        db.exec("ALTER TABLE lab_draws ADD COLUMN groups_json TEXT NOT NULL DEFAULT '[]';");
+      }
+
+      // 4. Pre-authorize Fernanda and Pedro as coordinators in users
+      db.prepare(`
+        INSERT INTO users (id, name, email, role, created_at, updated_at)
+        VALUES ('user_fernanda_coordinator', 'Fernanda Souto', 'fernandasouto7826@gmail.com', 'coordenador', datetime('now'), datetime('now'))
+        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
+      `).run();
+
+      db.prepare(`
+        INSERT INTO users (id, name, email, role, created_at, updated_at)
+        VALUES ('user_pedro_coordinator', 'Pedro Rafael', 'pedropignata2@gmail.com', 'coordenador', datetime('now'), datetime('now'))
+        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
+      `).run();
+
+      // Ensure pastoral_members records have coordinator emails
+      db.prepare("UPDATE pastoral_members SET email = 'pedropignata2@gmail.com' WHERE id = 'pmem_pedro'").run();
+      db.prepare("UPDATE pastoral_members SET email = 'fernandasouto7826@gmail.com' WHERE id = 'pmem_fernanda'").run();
+
+      // Ensure coordination_succession has Pedro and Fernanda
+      db.prepare(`
+        INSERT OR IGNORE INTO coordination_succession (id, coordinator_name, role_title, status, proposed_by, started_at, checklist_json, notes, created_at)
+        VALUES ('coord-pedro', 'Pedro', 'Coordenador da Pastoral Missionária', 'ativo', 'Institucional', '2026-01-01', '{"permissoes_atribuidas":true}', 'Coordenação em exercício e responsável técnico inicial', datetime('now'))
+      `).run();
+      db.prepare(`
+        INSERT OR IGNORE INTO coordination_succession (id, coordinator_name, role_title, status, proposed_by, started_at, checklist_json, notes, created_at)
+        VALUES ('coord-fernanda', 'Fernanda', 'Coordenadora da Pastoral Missionária', 'ativo', 'Institucional', '2026-01-01', '{"permissoes_atribuidas":true}', 'Coordenação em exercício da Pastoral Missionária', datetime('now'))
+      `).run();
+
+      // 5. November 2026 events in calendar_events
+      const insertCalEvent = db.prepare(`
+        INSERT OR IGNORE INTO calendar_events (
+          id, external_stable_id, title, description, event_date, event_time, location,
+          category, status, visibility, responsibles_json, notes, source, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'publico', ?, ?, 'Coordenação', datetime('now'), datetime('now'))
+      `);
+
+      insertCalEvent.run(
+        'cal_2026_11_14_formacao_1',
+        'cal_2026_11_14_formacao_1',
+        '1ª Formação (Novos Membros)',
+        'Formação inicial e vocacional para os novos membros da Pastoral Missionária.',
+        '2026-11-14',
+        '14:00',
+        'Paróquia São Vicente de Paulo',
+        'Formações',
+        'Confirmado',
+        JSON.stringify(['Pedro', 'Fernanda']),
+        'Presença de todos os novos membros.'
+      );
+
+      insertCalEvent.run(
+        'cal_2026_11_22_formacao_2',
+        'cal_2026_11_22_formacao_2',
+        '2ª Formação (Novos Membros)',
+        'Segunda etapa formativa doutrinária e espiritual da Pastoral Missionária.',
+        '2026-11-22',
+        '14:00',
+        'Paróquia São Vicente de Paulo',
+        'Formações',
+        'Confirmado',
+        JSON.stringify(['Pedro', 'Fernanda']),
+        'Continuidade do itinerário formativo.'
+      );
+
+      // 6. Seed real Pix Key: (61)992568165
+      const currentPixPayment = db.prepare("SELECT value_json FROM integration_settings WHERE key = 'pix_payment'").get() as any;
+      if (currentPixPayment) {
+        try {
+          const val = JSON.parse(currentPixPayment.value_json || '{}');
+          if (!val.pix_key || val.pix_key === 'pastoralmissionaria@agape.org.br') {
+            val.pix_key = '(61)992568165';
+            val.key_type = 'telefone';
+            db.prepare("UPDATE integration_settings SET value_json = ?, updated_at = datetime('now') WHERE key = 'pix_payment'").run(JSON.stringify(val));
+          }
+        } catch {}
+      }
+
+      const currentInst = db.prepare("SELECT value_json FROM integration_settings WHERE key = 'institutional'").get() as any;
+      if (currentInst) {
+        try {
+          const val = JSON.parse(currentInst.value_json || '{}');
+          if (!val.pix_key || val.pix_key === 'pastoralmissionaria@agape.org.br') {
+            val.pix_key = '(61)992568165';
+            db.prepare("UPDATE integration_settings SET value_json = ?, updated_at = datetime('now') WHERE key = 'institutional'").run(JSON.stringify(val));
+          }
+        } catch {}
+      }
+
+      // 7. Seed historical 18-participant lab draw if lab_draws is empty
+      const existingDrawsCount = (db.prepare('SELECT COUNT(*) as c FROM lab_draws').get() as any).c;
+      if (existingDrawsCount === 0) {
+        const historicalParticipants = [
+          { speaker_name: 'Saulo', speaker_id: 'pmem_saulo', theme_number: 13, theme_title: 'Pecado e Salvação', presentation_order: 1, duration_minutes: 20, group_number: 1 },
+          { speaker_name: 'Malu Neres', speaker_id: 'pmem_malu_neres', theme_number: 2, theme_title: 'Conhecer a pessoa de Jesus Cristo e Sua doutrina', presentation_order: 2, duration_minutes: 20, group_number: 1 },
+          { speaker_name: 'Maria Júlia', speaker_id: 'pmem_maria_julia', theme_number: 19, theme_title: 'Ser Igreja / Vida em Comunidade', presentation_order: 3, duration_minutes: 20, group_number: 1 },
+          { speaker_name: 'Állan', speaker_id: 'pmem_allan', theme_number: 10, theme_title: 'Servir: questão de vida ou morte', presentation_order: 4, duration_minutes: 20, group_number: 1 },
+
+          { speaker_name: 'Jamilly', speaker_id: 'pmem_jamilly', theme_number: 17, theme_title: 'Espírito Santo: Os Dons infusos como instrumento de Santificação', presentation_order: 1, duration_minutes: 20, group_number: 2 },
+          { speaker_name: 'Vinícius (Vini)', speaker_id: 'pmem_vini', theme_number: 1, theme_title: 'Chamado a ser apóstolo', presentation_order: 2, duration_minutes: 20, group_number: 2 },
+          { speaker_name: 'Alfredo', speaker_id: 'pmem_alfredo', theme_number: 18, theme_title: 'Espírito Santo: Os Dons efusos como instrumento de Evangelização', presentation_order: 3, duration_minutes: 20, group_number: 2 },
+          { speaker_name: 'Maria Luiza Lima', speaker_id: 'pmem_maria_luiza_lima', theme_number: 5, theme_title: 'Ser igreja apostólica', presentation_order: 4, duration_minutes: 20, group_number: 2 },
+
+          { speaker_name: 'Manuella', speaker_id: 'pmem_manuella', theme_number: 7, theme_title: 'O Pai nos ama e nos quer a seu serviço', presentation_order: 1, duration_minutes: 20, group_number: 3 },
+          { speaker_name: 'Victor', speaker_id: 'pmem_victor', theme_number: 6, theme_title: 'Martírio dos Apóstolos', presentation_order: 2, duration_minutes: 20, group_number: 3 },
+          { speaker_name: 'Laysa', speaker_id: 'pmem_laysa', theme_number: 4, theme_title: 'Maria, testemunha de Fé e Santidade', presentation_order: 3, duration_minutes: 20, group_number: 3 },
+          { speaker_name: 'Júlia Viana', speaker_id: 'pmem_julia', theme_number: 14, theme_title: 'Fé e Conversão', presentation_order: 4, duration_minutes: 20, group_number: 3 },
+
+          { speaker_name: 'Mariane', speaker_id: 'pmem_mariane', theme_number: 3, theme_title: 'Testemunhar a Paixão, Morte e Ressurreição de Jesus Cristo é ser Santo', presentation_order: 1, duration_minutes: 20, group_number: 4 },
+          { speaker_name: 'Letícia', speaker_id: 'pmem_leticia', theme_number: 9, theme_title: 'Maria, Rainha dos Apóstolos', presentation_order: 2, duration_minutes: 20, group_number: 4 },
+          { speaker_name: 'Maria Eduarda Fernandes (Duda Fernandes)', speaker_id: 'pmem_duda_fernandes', theme_number: 8, theme_title: 'São Paulo por excelência', presentation_order: 3, duration_minutes: 20, group_number: 4 },
+
+          { speaker_name: 'Duda Soares', speaker_id: 'pmem_duda_soares', theme_number: 15, theme_title: 'Ser inteiramente de Jesus', presentation_order: 1, duration_minutes: 20, group_number: 5 },
+          { speaker_name: 'Lyvia', speaker_id: 'pmem_lyvia', theme_number: 12, theme_title: 'Amor de Deus: pessoa do Filho', presentation_order: 2, duration_minutes: 20, group_number: 5 },
+          { speaker_name: 'Erick Kilbert', speaker_id: 'pmem_erick_kilbert', theme_number: 11, theme_title: 'Amor de Deus: pessoa do Pai', presentation_order: 3, duration_minutes: 20, group_number: 5 }
+        ];
+
+        const historicalGroups = [
+          { group_number: 1, duration_minutes: 80, members: historicalParticipants.filter(p => p.group_number === 1) },
+          { group_number: 2, duration_minutes: 80, members: historicalParticipants.filter(p => p.group_number === 2) },
+          { group_number: 3, duration_minutes: 80, members: historicalParticipants.filter(p => p.group_number === 3) },
+          { group_number: 4, duration_minutes: 60, members: historicalParticipants.filter(p => p.group_number === 4) },
+          { group_number: 5, duration_minutes: 60, members: historicalParticipants.filter(p => p.group_number === 5) }
+        ];
+
+        db.prepare(`
+          INSERT INTO lab_draws (
+            id, laboratory_date, laboratory_name, coordinator_name, draw_date, duration_minutes,
+            participants_count, participants_json, groups_json, rules_json, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativo', datetime('now'), datetime('now'))
+        `).run(
+          'draw_historico_18_part',
+          'A definir',
+          'Laboratório Oficial de Pregação (18 Participantes — 5 Grupos)',
+          'Coordenação (Pedro e Fernanda)',
+          '2026-11-03',
+          20,
+          18,
+          JSON.stringify(historicalParticipants),
+          JSON.stringify(historicalGroups),
+          JSON.stringify({ distribution: [4, 4, 4, 3, 3], max_group_size: 4, historical: true })
+        );
+      }
+
+      // 8. Registrar migração 004
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('004_master_4_0_ecosystem_evolution', 'Evolução Ecossistema 4.0: Gestão de Membros, Aniversários, Grupos Equilibrados de Pregação, Eventos 2026 e Coordenação Geral', datetime('now'))
+      `).run();
+    });
+
+    migrate004();
+    console.log('✓ Migração 004_master_4_0_ecosystem_evolution aplicada com sucesso.');
   }
 
   // Idempotent Seed of Official Institutional Data

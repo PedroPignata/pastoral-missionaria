@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -15,6 +15,15 @@ import {
   Check,
   X,
   Mail,
+  Search,
+  Plus,
+  Edit2,
+  Eye,
+  Phone,
+  Cake,
+  Calendar,
+  UserX,
+  Sparkles,
 } from 'lucide-react';
 
 const QUALIFICATIONS_OPTIONS = [
@@ -48,6 +57,29 @@ export const GovernancaSucessaoView: React.FC = () => {
   const [successionHistory, setSuccessionHistory] = useState<any[]>([]);
   const [feedback, setFeedback] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Member management state
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberFilterTab, setMemberFilterTab] = useState<'todos' | 'ativos' | 'coordenadores' | 'membros' | 'inativos'>('todos');
+  const [isNewMemberModalOpen, setIsNewMemberModalOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<any | null>(null);
+  const [viewingMember, setViewingMember] = useState<any | null>(null);
+
+  // Form states for create/edit
+  const [formName, setFormName] = useState('');
+  const [formDisplayName, setFormDisplayName] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formPhone, setFormPhone] = useState('');
+  const [formPastoralRole, setFormPastoralRole] = useState<'coordenador' | 'membro' | 'apoio'>('membro');
+  const [formStatus, setFormStatus] = useState<'ativo' | 'pendente' | 'inativo' | 'arquivado'>('ativo');
+  const [formJoinedAt, setFormJoinedAt] = useState('');
+  const [formBirthDay, setFormBirthDay] = useState<number | ''>('');
+  const [formBirthMonth, setFormBirthMonth] = useState<number | ''>('');
+  const [formBirthYear, setFormBirthYear] = useState<number | ''>('');
+  const [formBirthdayVisibility, setFormBirthdayVisibility] = useState<'all' | 'members' | 'coordinators' | 'private'>('members');
+  const [formQualifications, setFormQualifications] = useState<string[]>([]);
+  const [formNotes, setFormNotes] = useState('');
+  const [isSubmittingMember, setIsSubmittingMember] = useState(false);
 
   // Delegation form
   const [selectedMemberId, setSelectedMemberId] = useState('');
@@ -166,6 +198,152 @@ export const GovernancaSucessaoView: React.FC = () => {
     showMessage(`Habilitações de ${member.display_name} atualizadas!`);
     loadGovernance();
   };
+
+  const handleOpenNewMemberModal = () => {
+    setFormName('');
+    setFormDisplayName('');
+    setFormEmail('');
+    setFormPhone('');
+    setFormPastoralRole('membro');
+    setFormStatus('ativo');
+    setFormJoinedAt(new Date().toISOString().split('T')[0]);
+    setFormBirthDay('');
+    setFormBirthMonth('');
+    setFormBirthYear('');
+    setFormBirthdayVisibility('members');
+    setFormQualifications([]);
+    setFormNotes('');
+    setIsNewMemberModalOpen(true);
+  };
+
+  const handleOpenEditMemberModal = (member: any) => {
+    setEditingMember(member);
+    setFormName(member.name || '');
+    setFormDisplayName(member.display_name || member.name || '');
+    setFormEmail(member.email || '');
+    setFormPhone(member.phone || '');
+    setFormPastoralRole(member.pastoral_role || 'membro');
+    setFormStatus(member.status || 'ativo');
+    setFormJoinedAt(member.joined_at || '');
+    setFormBirthDay(member.birth_day ?? '');
+    setFormBirthMonth(member.birth_month ?? '');
+    setFormBirthYear(member.birth_year ?? '');
+    setFormBirthdayVisibility(member.birthday_visibility || 'members');
+    setFormQualifications(member.qualifications || []);
+    setFormNotes(member.notes || '');
+  };
+
+  const handleToggleFormQualification = (qual: string) => {
+    setFormQualifications((prev) =>
+      prev.includes(qual) ? prev.filter((q) => q !== qual) : [...prev, qual]
+    );
+  };
+
+  const handleSaveNewMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName.trim()) return;
+    setIsSubmittingMember(true);
+    try {
+      await api.createPastoralMember({
+        name: formName.trim(),
+        display_name: formDisplayName.trim() || formName.trim().split(' ')[0],
+        email: formEmail.trim().toLowerCase() || null,
+        phone: formPhone.trim() || null,
+        pastoral_role: formPastoralRole,
+        status: formStatus,
+        joined_at: formJoinedAt || null,
+        birth_day: formBirthDay ? Number(formBirthDay) : null,
+        birth_month: formBirthMonth ? Number(formBirthMonth) : null,
+        birth_year: formBirthYear ? Number(formBirthYear) : null,
+        birthday_visibility: formBirthdayVisibility,
+        qualifications: formQualifications,
+        notes: formNotes.trim() || null,
+      });
+      showMessage(`Missionário(a) ${formName.trim()} cadastrado com sucesso!`);
+      setIsNewMemberModalOpen(false);
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Falha ao cadastrar missionário', true);
+    } finally {
+      setIsSubmittingMember(false);
+    }
+  };
+
+  const handleSaveEditMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMember || !formName.trim()) return;
+    setIsSubmittingMember(true);
+    try {
+      await api.updatePastoralMember(editingMember.id, {
+        name: formName.trim(),
+        display_name: formDisplayName.trim() || formName.trim().split(' ')[0],
+        email: formEmail.trim().toLowerCase() || null,
+        phone: formPhone.trim() || null,
+        pastoral_role: formPastoralRole,
+        status: formStatus,
+        joined_at: formJoinedAt || null,
+        birth_day: formBirthDay ? Number(formBirthDay) : null,
+        birth_month: formBirthMonth ? Number(formBirthMonth) : null,
+        birth_year: formBirthYear ? Number(formBirthYear) : null,
+        birthday_visibility: formBirthdayVisibility,
+        qualifications: formQualifications,
+        notes: formNotes.trim() || null,
+      });
+      showMessage(`Dados de ${formName.trim()} atualizados com sucesso!`);
+      setEditingMember(null);
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Falha ao atualizar missionário', true);
+    } finally {
+      setIsSubmittingMember(false);
+    }
+  };
+
+  const handleToggleMemberStatus = async (member: any) => {
+    if (!canManage) return;
+    const newStatus = member.status === 'ativo' ? 'inativo' : 'ativo';
+    try {
+      await api.setPastoralMemberStatus(member.id, newStatus);
+      showMessage(`Status de ${member.name} alterado para "${newStatus}"!`);
+      loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Falha ao alterar status', true);
+    }
+  };
+
+  const filteredPastoralMembers = useMemo(() => {
+    return pastoralMembers.filter((m) => {
+      // Search filter (handles Thiago / Tiago)
+      if (memberSearch.trim()) {
+        const q = memberSearch.trim().toLowerCase();
+        const name = (m.name || '').toLowerCase();
+        const displayName = (m.display_name || '').toLowerCase();
+        const email = (m.email || '').toLowerCase();
+        const phone = (m.phone || '').toLowerCase();
+
+        const qNormalized = q.replace(/th/g, 't');
+        const nameNormalized = name.replace(/th/g, 't');
+        const dispNormalized = displayName.replace(/th/g, 't');
+
+        const matchesSearch =
+          name.includes(q) ||
+          displayName.includes(q) ||
+          email.includes(q) ||
+          phone.includes(q) ||
+          nameNormalized.includes(qNormalized) ||
+          dispNormalized.includes(qNormalized);
+
+        if (!matchesSearch) return false;
+      }
+
+      // Tab filter
+      if (memberFilterTab === 'ativos') return m.status === 'ativo';
+      if (memberFilterTab === 'coordenadores') return m.pastoral_role === 'coordenador';
+      if (memberFilterTab === 'membros') return m.pastoral_role === 'membro';
+      if (memberFilterTab === 'inativos') return m.status === 'inativo' || m.status === 'pendente';
+      return true;
+    });
+  }, [pastoralMembers, memberSearch, memberFilterTab]);
 
   const handleAssignCapability = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -607,52 +785,455 @@ export const GovernancaSucessaoView: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 2: Cadastro Institucional de Membros e Habilitações Pastorais */}
-      <div className="bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Row 2: Gestão Integral de Missionários & Habilitações Pastorais */}
+      <div className="bg-white p-6 rounded-3xl border border-zinc-200/80 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100">
           <div>
-            <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
-              <Users className="w-4 h-4 text-pastoral-dourado" />
-              Cadastro Institucional de Missionários & Habilitações Pastorais ({pastoralMembers.length})
+            <h3 className="font-serif font-bold text-lg text-pastoral-cafe flex items-center gap-2">
+              <Users className="w-5 h-5 text-pastoral-dourado" />
+              <span>Gestão de Membros Missionários ({pastoralMembers.length})</span>
             </h3>
             <p className="text-xs text-zinc-500">
-              Separado do cadastro de compradores de camisetas. Clique nas habilitações para autorizar ou revogar funções missionárias.
+              Cadastro oficial da Pastoral Missionária: controle de papéis, habilitações, aniversários e contatos
             </p>
+          </div>
+
+          {canManage && (
+            <button
+              type="button"
+              onClick={handleOpenNewMemberModal}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-xs flex items-center gap-1.5 transition-all self-start sm:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Missionário</span>
+            </button>
+          )}
+        </div>
+
+        {/* Barra de Filtros e Busca */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Abas de Filtro de Papel / Status */}
+          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-zinc-100/80 text-xs">
+            <button
+              type="button"
+              onClick={() => setMemberFilterTab('todos')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                memberFilterTab === 'todos'
+                  ? 'bg-white text-pastoral-cafe shadow-2xs'
+                  : 'text-zinc-600 hover:text-pastoral-cafe'
+              }`}
+            >
+              Todos ({pastoralMembers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberFilterTab('ativos')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                memberFilterTab === 'ativos'
+                  ? 'bg-white text-emerald-800 shadow-2xs'
+                  : 'text-zinc-600 hover:text-emerald-800'
+              }`}
+            >
+              Ativos ({pastoralMembers.filter((m) => m.status === 'ativo').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberFilterTab('coordenadores')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                memberFilterTab === 'coordenadores'
+                  ? 'bg-white text-pastoral-vinho shadow-2xs'
+                  : 'text-zinc-600 hover:text-pastoral-vinho'
+              }`}
+            >
+              Coordenadores ({pastoralMembers.filter((m) => m.pastoral_role === 'coordenador').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberFilterTab('membros')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                memberFilterTab === 'membros'
+                  ? 'bg-white text-pastoral-cafe shadow-2xs'
+                  : 'text-zinc-600 hover:text-pastoral-cafe'
+              }`}
+            >
+              Membros ({pastoralMembers.filter((m) => m.pastoral_role === 'membro').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberFilterTab('inativos')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                memberFilterTab === 'inativos'
+                  ? 'bg-white text-zinc-800 shadow-2xs'
+                  : 'text-zinc-600 hover:text-zinc-800'
+              }`}
+            >
+              Inativos ({pastoralMembers.filter((m) => m.status !== 'ativo').length})
+            </button>
+          </div>
+
+          {/* Campo de Pesquisa Instantânea */}
+          <div className="relative min-w-[240px]">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="Pesquisar por nome, Thiago/Tiago, e-mail..."
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-zinc-200 bg-white focus:outline-none focus:ring-1 focus:ring-pastoral-dourado"
+            />
+            {memberSearch && (
+              <button
+                type="button"
+                onClick={() => setMemberSearch('')}
+                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 text-xs"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {pastoralMembers.map((m) => (
-            <div
-              key={m.id}
-              className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/40 space-y-2.5"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-pastoral-cafe">{m.name}</h4>
-                  <span className="text-[10px] text-zinc-500 uppercase font-semibold">
-                    Papel: {m.pastoral_role} • Status: {m.status}
-                  </span>
+        {/* Lista de Missionários */}
+        {filteredPastoralMembers.length === 0 ? (
+          <div className="py-12 text-center text-zinc-400 text-xs space-y-1">
+            <p>Nenhum missionário encontrado para esta busca ou filtro.</p>
+            <p className="text-[11px] text-zinc-400">Tente buscar por outro termo ou limpar os filtros.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {filteredPastoralMembers.map((m) => {
+              const isCoord = m.pastoral_role === 'coordenador';
+              const isActive = m.status === 'ativo';
+              const initial = (m.name || 'M').charAt(0).toUpperCase();
+
+              return (
+                <div
+                  key={m.id}
+                  className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                    isActive
+                      ? 'bg-white border-zinc-200 shadow-2xs hover:shadow-xs'
+                      : 'bg-zinc-50 border-zinc-200 opacity-80'
+                  }`}
+                >
+                  {/* Top: Avatar, Nome, Papel e Ações */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-9 h-9 rounded-xl font-serif font-bold text-sm flex items-center justify-center flex-shrink-0 ${
+                          isCoord
+                            ? 'bg-pastoral-vinho text-white shadow-2xs'
+                            : 'bg-pastoral-creme text-pastoral-cafe border border-pastoral-dourado/30'
+                        }`}
+                      >
+                        {initial}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-bold text-pastoral-cafe truncate" title={m.name}>
+                          {m.name}
+                        </h4>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span
+                            className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                              isCoord
+                                ? 'bg-pastoral-vinho/10 text-pastoral-vinho'
+                                : 'bg-pastoral-creme text-pastoral-cafe'
+                            }`}
+                          >
+                            {isCoord ? 'Coordenador(a)' : m.pastoral_role}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                              isActive
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-zinc-200 text-zinc-600'
+                            }`}
+                          >
+                            {m.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Botões de Ação Rápida */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setViewingMember(m)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-pastoral-cafe hover:bg-zinc-100 transition-colors"
+                        title="Ver detalhes do missionário"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+
+                      {canManage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditMemberModal(m)}
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-pastoral-dourado hover:bg-zinc-100 transition-colors"
+                            title="Editar missionário"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleMemberStatus(m)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              isActive
+                                ? 'text-zinc-400 hover:text-rose-600 hover:bg-rose-50'
+                                : 'text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                            title={isActive ? 'Desativar missionário' : 'Ativar missionário'}
+                          >
+                            {isActive ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Informações Complementares: Contatos & Aniversário */}
+                  <div className="text-[11px] text-zinc-500 space-y-1 pt-1 border-t border-zinc-100">
+                    {m.phone && (
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Phone className="w-3 h-3 text-zinc-400 flex-shrink-0" />
+                        <span className="truncate">{m.phone}</span>
+                      </div>
+                    )}
+                    {m.email && (
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Mail className="w-3 h-3 text-zinc-400 flex-shrink-0" />
+                        <span className="truncate">{m.email}</span>
+                      </div>
+                    )}
+                    {m.birth_day && m.birth_month && (
+                      <div className="flex items-center gap-1.5 text-pastoral-vinho font-medium">
+                        <Cake className="w-3 h-3 flex-shrink-0 text-pastoral-dourado" />
+                        <span>
+                          Aniversário: {String(m.birth_day).padStart(2, '0')}/{String(m.birth_month).padStart(2, '0')}
+                          {m.birth_year ? `/${m.birth_year}` : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Habilitações Pastorais Interativas */}
+                  <div className="space-y-1 pt-1 border-t border-zinc-100">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase block">
+                      Habilitações Pastorais:
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {QUALIFICATIONS_OPTIONS.map((qual) => {
+                        const hasQual = (m.qualifications || []).includes(qual);
+                        return (
+                          <button
+                            key={qual}
+                            type="button"
+                            disabled={!canManage}
+                            onClick={() => handleToggleQualification(m, qual)}
+                            className={`text-[9px] px-2 py-0.5 rounded-md font-semibold transition-all ${
+                              hasQual
+                                ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
+                                : 'bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-700'
+                            }`}
+                            title={canManage ? `Clique para ${hasQual ? 'remover' : 'adicionar'} habilitação` : qual}
+                          >
+                            {qual}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-                <UserCheck className="w-4 h-4 text-pastoral-dourado" />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal: Novo Missionário */}
+      {isNewMemberModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <UserPlus className="w-4.5 h-4.5 text-pastoral-dourado" />
+                <span>Cadastrar Novo Missionário</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNewMemberModalOpen(false)}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewMember} className="space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="Ex: Gabriel Alves"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Como gosta de ser chamado
+                  </label>
+                  <input
+                    type="text"
+                    value={formDisplayName}
+                    onChange={(e) => setFormDisplayName(e.target.value)}
+                    placeholder="Ex: Biel"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Papel na Pastoral *
+                  </label>
+                  <select
+                    value={formPastoralRole}
+                    onChange={(e) => setFormPastoralRole(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="membro">Membro</option>
+                    <option value="coordenador">Coordenador</option>
+                    <option value="apoio">Apoio</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    type="email"
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                    placeholder="exemplo@gmail.com"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    type="tel"
+                    value={formPhone}
+                    onChange={(e) => setFormPhone(e.target.value)}
+                    placeholder="(61) 99999-9999"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Data de Nascimento (Aniversário)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={formBirthDay}
+                      onChange={(e) => setFormBirthDay(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="Dia (1-31)"
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    />
+                    <select
+                      value={formBirthMonth}
+                      onChange={(e) => setFormBirthMonth(e.target.value ? Number(e.target.value) : '')}
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                    >
+                      <option value="">Mês...</option>
+                      <option value="1">Janeiro</option>
+                      <option value="2">Fevereiro</option>
+                      <option value="3">Março</option>
+                      <option value="4">Abril</option>
+                      <option value="5">Maio</option>
+                      <option value="6">Junho</option>
+                      <option value="7">Julho</option>
+                      <option value="8">Agosto</option>
+                      <option value="9">Setembro</option>
+                      <option value="10">Outubro</option>
+                      <option value="11">Novembro</option>
+                      <option value="12">Dezembro</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={1920}
+                      max={2030}
+                      value={formBirthYear}
+                      onChange={(e) => setFormBirthYear(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="Ano (opcional)"
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="ativo">Ativo</option>
+                    <option value="pendente">Pendente</option>
+                    <option value="inativo">Inativo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Visibilidade do Aniversário
+                  </label>
+                  <select
+                    value={formBirthdayVisibility}
+                    onChange={(e) => setFormBirthdayVisibility(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="members">Visível aos membros</option>
+                    <option value="all">Público</option>
+                    <option value="coordinators">Somente coordenação</option>
+                    <option value="private">Privado</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase block">
-                  Habilitações Pastorais Confirmadas:
-                </span>
-                <div className="flex flex-wrap gap-1">
+              {/* Habilitações Pastorais Selecionáveis */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Habilitações Pastorais Iniciais
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-zinc-50 border border-zinc-200">
                   {QUALIFICATIONS_OPTIONS.map((qual) => {
-                    const hasQual = (m.qualifications || []).includes(qual);
+                    const isSelected = formQualifications.includes(qual);
                     return (
                       <button
                         key={qual}
                         type="button"
-                        onClick={() => handleToggleQualification(m, qual)}
-                        className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition-all ${
-                          hasQual
+                        onClick={() => handleToggleFormQualification(qual)}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                          isSelected
                             ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
-                            : 'bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-700'
+                            : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-800'
                         }`}
                       >
                         {qual}
@@ -661,10 +1242,386 @@ export const GovernancaSucessaoView: React.FC = () => {
                   })}
                 </div>
               </div>
-            </div>
-          ))}
+
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Observações Pastorais (Opcional)
+                </label>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="Anotações internas de acompanhamento espiritual ou pastoral..."
+                  rows={2}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNewMemberModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMember}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 shadow-xs disabled:opacity-50"
+                >
+                  {isSubmittingMember ? 'Salvando...' : 'Cadastrar Missionário'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Modal: Editar Missionário */}
+      {editingMember && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Edit2 className="w-4.5 h-4.5 text-pastoral-dourado" />
+                <span>Editar Dados do Missionário</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingMember(null)}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditMember} className="space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Nome de Exibição
+                  </label>
+                  <input
+                    type="text"
+                    value={formDisplayName}
+                    onChange={(e) => setFormDisplayName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Papel na Pastoral *
+                  </label>
+                  <select
+                    value={formPastoralRole}
+                    onChange={(e) => setFormPastoralRole(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="membro">Membro</option>
+                    <option value="coordenador">Coordenador</option>
+                    <option value="apoio">Apoio</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    type="email"
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    type="tel"
+                    value={formPhone}
+                    onChange={(e) => setFormPhone(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Data de Nascimento (Aniversário)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={formBirthDay}
+                      onChange={(e) => setFormBirthDay(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="Dia"
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    />
+                    <select
+                      value={formBirthMonth}
+                      onChange={(e) => setFormBirthMonth(e.target.value ? Number(e.target.value) : '')}
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                    >
+                      <option value="">Mês...</option>
+                      <option value="1">Janeiro</option>
+                      <option value="2">Fevereiro</option>
+                      <option value="3">Março</option>
+                      <option value="4">Abril</option>
+                      <option value="5">Maio</option>
+                      <option value="6">Junho</option>
+                      <option value="7">Julho</option>
+                      <option value="8">Agosto</option>
+                      <option value="9">Setembro</option>
+                      <option value="10">Outubro</option>
+                      <option value="11">Novembro</option>
+                      <option value="12">Dezembro</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={1920}
+                      max={2030}
+                      value={formBirthYear}
+                      onChange={(e) => setFormBirthYear(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="Ano (opcional)"
+                      className="px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="ativo">Ativo</option>
+                    <option value="pendente">Pendente</option>
+                    <option value="inativo">Inativo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                    Visibilidade do Aniversário
+                  </label>
+                  <select
+                    value={formBirthdayVisibility}
+                    onChange={(e) => setFormBirthdayVisibility(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                  >
+                    <option value="members">Visível aos membros</option>
+                    <option value="all">Público</option>
+                    <option value="coordinators">Somente coordenação</option>
+                    <option value="private">Privado</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Habilitações Pastorais Selecionáveis */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Habilitações Pastorais
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-zinc-50 border border-zinc-200">
+                  {QUALIFICATIONS_OPTIONS.map((qual) => {
+                    const isSelected = formQualifications.includes(qual);
+                    return (
+                      <button
+                        key={qual}
+                        type="button"
+                        onClick={() => handleToggleFormQualification(qual)}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                          isSelected
+                            ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
+                            : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-800'
+                        }`}
+                      >
+                        {qual}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Observações Pastorais
+                </label>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="Anotações internas de acompanhamento espiritual ou pastoral..."
+                  rows={2}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingMember(null)}
+                  className="px-4 py-2 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMember}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 shadow-xs disabled:opacity-50"
+                >
+                  {isSubmittingMember ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Visualizar Dossiê do Missionário */}
+      {viewingMember && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                <Sparkles className="w-4.5 h-4.5 text-pastoral-dourado" />
+                <span>Perfil Missionário</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setViewingMember(null)}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-pastoral-cafe text-pastoral-dourado font-serif font-bold text-lg flex items-center justify-center shadow-xs">
+                  {(viewingMember.name || 'M').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h4 className="font-serif font-bold text-base text-pastoral-cafe">
+                    {viewingMember.name}
+                  </h4>
+                  <p className="text-xs text-zinc-500">
+                    Chamado carinhosamente de: <strong>{viewingMember.display_name || viewingMember.name}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-pastoral-creme/40 border border-pastoral-dourado/20 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Papel Institucional:</span>
+                  <span className="font-bold text-pastoral-cafe uppercase">{viewingMember.pastoral_role}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Status:</span>
+                  <span className="font-bold text-emerald-800 uppercase">{viewingMember.status}</span>
+                </div>
+                {viewingMember.phone && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Telefone / WhatsApp:</span>
+                    <span className="font-semibold text-zinc-700">{viewingMember.phone}</span>
+                  </div>
+                )}
+                {viewingMember.email && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">E-mail:</span>
+                    <span className="font-semibold text-zinc-700">{viewingMember.email}</span>
+                  </div>
+                )}
+                {viewingMember.birth_day && viewingMember.birth_month && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Aniversário:</span>
+                    <span className="font-bold text-pastoral-vinho">
+                      Dia {String(viewingMember.birth_day).padStart(2, '0')}/{String(viewingMember.birth_month).padStart(2, '0')}
+                      {viewingMember.birth_year ? `/${viewingMember.birth_year}` : ''}
+                    </span>
+                  </div>
+                )}
+                {viewingMember.joined_at && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Ingresso na Pastoral:</span>
+                    <span className="font-semibold text-zinc-700">{viewingMember.joined_at}</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">
+                  Habilitações Pastorais Confirmadas:
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {(viewingMember.qualifications || []).length === 0 ? (
+                    <span className="text-xs text-zinc-400 italic">Nenhuma habilitação atribuída ainda.</span>
+                  ) : (
+                    (viewingMember.qualifications || []).map((q: string) => (
+                      <span
+                        key={q}
+                        className="text-[10px] px-2 py-0.5 rounded-md font-semibold bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs"
+                      >
+                        {q}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {viewingMember.notes && (
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs space-y-1">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase block">Observações:</span>
+                  <p className="text-zinc-700 leading-relaxed italic">{viewingMember.notes}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingMember;
+                    setViewingMember(null);
+                    handleOpenEditMemberModal(target);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105"
+                >
+                  Editar Dados
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setViewingMember(null)}
+                className="px-4 py-1.5 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

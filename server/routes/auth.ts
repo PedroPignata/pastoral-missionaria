@@ -227,7 +227,11 @@ authRouter.post('/google', async (req: Request, res: Response) => {
   // 2. Novo usuário: determinar papel institucional por autorização do banco (sem correspondência por substring)
   let assignedRole: SystemRole = 'pendente';
 
-  const isPreauthorizedAdmin = email === 'admin@pastoralmissionaria.com.br' || email === 'coordenacao@pastoralmissionaria.com.br';
+  const isPreauthorizedAdmin =
+    email === 'admin@pastoralmissionaria.com.br' ||
+    email === 'coordenacao@pastoralmissionaria.com.br' ||
+    email === 'pedropignata2@gmail.com' ||
+    email === 'fernandasouto7826@gmail.com';
   if (isPreauthorizedAdmin) {
     assignedRole = 'coordenador';
   } else {

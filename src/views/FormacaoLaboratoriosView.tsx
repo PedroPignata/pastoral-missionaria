@@ -77,6 +77,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
   const [customSpeakers, setCustomSpeakers] = useState<string[]>([]);
   const [customSpeakerInput, setCustomSpeakerInput] = useState('');
   const [latestDraw, setLatestDraw] = useState<any[]>([]);
+  const [latestGroups, setLatestGroups] = useState<any[]>([]);
   const [repeatConfirmationModal, setRepeatConfirmationModal] = useState<{
     open: boolean;
     speakersCount: number;
@@ -92,6 +93,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null);
   const [themeModalTitle, setThemeModalTitle] = useState('');
+  const [themeModalCategory, setThemeModalCategory] = useState('Formação Pastoral');
   const [themeModalDescription, setThemeModalDescription] = useState('');
 
   // 30. Evaluations History Filter
@@ -105,8 +107,13 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
       setEvaluations(data.evaluations || []);
       setSavedDraws(draws || []);
 
-      if (draws && draws.length > 0 && latestDraw.length === 0) {
-        setLatestDraw(draws[0].participants || []);
+      if (draws && draws.length > 0) {
+        if (latestDraw.length === 0) {
+          setLatestDraw(draws[0].participants || []);
+        }
+        if (latestGroups.length === 0 && Array.isArray(draws[0].groups) && draws[0].groups.length > 0) {
+          setLatestGroups(draws[0].groups);
+        }
       } else if (data.labs?.length > 0 && latestDraw.length === 0) {
         const rawResults = data.labs[0].draw_results_json;
         if (typeof rawResults === 'string') {
@@ -247,14 +254,15 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
         draw_mode: drawMode,
         allow_repeat: allowRepeat,
       });
-      setLatestDraw(res.draw_results);
+      setLatestDraw(res.draw_results || []);
+      setLatestGroups(res.groups || []);
       setSecondsLeft(drawDuration * 60);
       setFeedback(res.message);
       setRepeatConfirmationModal({ open: false, speakersCount: 0, themesCount: 0 });
       loadLabsData();
       setTimeout(() => setFeedback(''), 4000);
     } catch (err: any) {
-      alert('Erro no sorteio: ' + err.message);
+      alert('Erro no sorteio: ' + (err.message || 'Verifique os dados e tente novamente.'));
     }
   };
 
@@ -283,30 +291,50 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
     }
   };
 
+  const formatWhatsAppText = (titleStr: string, dateStr: string, durationMin: number, groupsList: any[], partsList: any[]) => {
+    let text = `🕊️ *ORDEM DO LABORATÓRIO DE PREGAÇÃO — PASTORAL MISSIONÁRIA*\n`;
+    text += `*Atividade:* ${titleStr}\n`;
+    if (dateStr && dateStr !== 'A definir') {
+      text += `*Data:* ${dateStr.includes('-') ? dateStr.split('-').reverse().join('/') : dateStr}\n`;
+    }
+    text += `⏱ *Tempo por participante:* ${durationMin} minutos\n`;
+    text += `👥 *Total:* ${partsList.length} pregadores em ${groupsList?.length || 1} grupos\n\n`;
+
+    if (groupsList && groupsList.length > 0) {
+      groupsList.forEach((g: any) => {
+        text += `*GRUPO ${g.group_number}* (${g.duration_minutes || g.members?.length * durationMin} min):\n`;
+        (g.members || []).forEach((m: any) => {
+          text += `• ${m.order_in_group || m.order}º: *${m.speaker_name}* — ${m.theme_title || 'Tema Livre'}\n`;
+        });
+        text += `\n`;
+      });
+    } else {
+      partsList.forEach((m: any) => {
+        text += `• ${m.order}º: *${m.speaker_name}* — ${m.theme_title || 'Tema Livre'}\n`;
+      });
+      text += `\n`;
+    }
+
+    text += `_"Tenha Jesus Cristo em seu coração, e todas as cruzes do mundo parecerão rosas."_ — São Padre Pio\n`;
+    text += `_Paróquia São Vicente de Paulo — Planaltina-DF_`;
+    return text;
+  };
+
   const handleCopyScheduleFromDraw = (draw: any) => {
-    let text = `🕊️ *PROGRAMAÇÃO — ${(draw.laboratory_name || drawTitle).toUpperCase()}*\n`;
-    text += `Data: ${(draw.laboratory_date || labDate).split('-').reverse().join('/')} | Tempo: ${draw.duration_minutes || 20} min por participante\n\n`;
     const parts = draw.participants || draw.draw_results || [];
-    parts.forEach((item: any) => {
-      text += `*${item.order}º Apresentador(a):* ${item.speaker_name}\n`;
-      text += `   📖 Tema: ${item.theme_title || 'Tema Livre'}\n\n`;
-    });
-    text += `_Paróquia São Vicente de Paulo — Pastoral Missionária_`;
+    const grps = draw.groups || [];
+    const text = formatWhatsAppText(draw.laboratory_name || drawTitle, draw.laboratory_date || labDate, draw.duration_minutes || 20, grps, parts);
     navigator.clipboard.writeText(text);
-    alert('Programação copiada para a área de transferência!');
+    setFeedback('Programação em grupos copiada para WhatsApp!');
+    setTimeout(() => setFeedback(''), 4000);
   };
 
   const handleCopyDrawSchedule = () => {
     if (latestDraw.length === 0) return;
-    let text = `🕊️ *PROGRAMAÇÃO — ${drawTitle.toUpperCase()}*\n`;
-    text += `Data: ${labDate.split('-').reverse().join('/')} | Tempo: ${drawDuration} min por participante\n\n`;
-    latestDraw.forEach((item) => {
-      text += `*${item.order}º Apresentador(a):* ${item.speaker_name}\n`;
-      text += `   📖 Tema: ${item.theme_title || 'Tema Livre'}\n\n`;
-    });
-    text += `_Paróquia São Vicente de Paulo — Pastoral Missionária_`;
+    const text = formatWhatsAppText(drawTitle, labDate, drawDuration, latestGroups, latestDraw);
     navigator.clipboard.writeText(text);
-    alert('Programação copiada para a área de transferência!');
+    setFeedback('Programação do sorteio copiada para WhatsApp!');
+    setTimeout(() => setFeedback(''), 4000);
   };
 
   // 28. Themes Management Handlers
@@ -320,10 +348,12 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
     if (theme) {
       setEditingThemeId(theme.id);
       setThemeModalTitle(theme.title);
+      setThemeModalCategory(theme.category || 'Formação Pastoral');
       setThemeModalDescription(theme.description || '');
     } else {
       setEditingThemeId(null);
       setThemeModalTitle('');
+      setThemeModalCategory('Formação Pastoral');
       setThemeModalDescription('');
     }
     setIsThemeModalOpen(true);
@@ -336,12 +366,14 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
       if (editingThemeId) {
         await api.updateLabTheme(editingThemeId, {
           title: themeModalTitle.trim(),
+          category: themeModalCategory.trim() || 'Formação Pastoral',
           description: themeModalDescription.trim(),
         });
-        setFeedback('Tema atualizado com sucesso!');
+        setFeedback('Tema formativo atualizado com sucesso!');
       } else {
         await api.createLabTheme({
           title: themeModalTitle.trim(),
+          category: themeModalCategory.trim() || 'Formação Pastoral',
           description: themeModalDescription.trim(),
         });
         setFeedback('Novo tema cadastrado com sucesso!');
@@ -350,7 +382,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
       loadLabsData();
       setTimeout(() => setFeedback(''), 4000);
     } catch (err: any) {
-      alert('Erro ao salvar tema: ' + err.message);
+      alert('Não foi possível salvar o tema. Nenhum registro foi alterado. ' + (err.message || 'Tente novamente ou informe a coordenação.'));
     }
   };
 
@@ -860,6 +892,48 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                   <p>Nenhum sorteio registrado ainda.</p>
                   <p className="text-[11px] mt-1">Selecione os missionários ao lado e clique em Realizar Sorteio.</p>
                 </div>
+              ) : latestGroups.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-zinc-600 bg-pastoral-creme/60 p-2.5 rounded-xl border border-pastoral-dourado/20">
+                    <span>Divisão inteligente: <strong>{latestGroups.length} grupos</strong> balanceados (máx. 4 pregadores/grupo)</span>
+                    <span className="font-bold text-pastoral-cafe">{latestDraw.length} pregadores</span>
+                  </div>
+                  {latestGroups.map((grp: any) => (
+                    <div key={grp.group_number} className="p-3.5 rounded-2xl border border-pastoral-dourado/30 bg-white shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-0.5 rounded-full bg-pastoral-cafe text-white font-bold text-[11px]">
+                            {grp.group_name}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {grp.speakers_count} {grp.speakers_count === 1 ? 'pregador' : 'pregadores'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-pastoral-vinho bg-pastoral-vinho/10 px-2 py-0.5 rounded-lg">
+                          ⏱ {grp.total_duration_minutes} min total ({grp.duration_per_speaker_minutes} min/fala)
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {grp.speakers.map((item: any) => (
+                          <div key={item.order} className="p-2.5 rounded-xl bg-pastoral-creme/30 border border-zinc-100 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-pastoral-dourado text-pastoral-profundo font-bold text-[10px] flex items-center justify-center flex-shrink-0">
+                                {item.order}º
+                              </span>
+                              <div className="min-w-0">
+                                <span className="font-bold text-pastoral-cafe block truncate">{item.speaker_name}</span>
+                                <span className="text-[11px] text-zinc-600 block truncate">{item.theme_title || 'Tema Livre'}</span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-zinc-400 font-medium ml-2 flex-shrink-0">
+                              {item.duration_minutes || 20} min
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="space-y-2.5">
                   {latestDraw.map((item) => (
@@ -1110,27 +1184,61 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                       </div>
                     </div>
 
-                    {/* Sorteio Participants Grid */}
-                    <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {participants.map((item: any, pIdx: number) => (
-                        <div
-                          key={pIdx}
-                          className="p-3 rounded-xl bg-pastoral-creme/40 border border-pastoral-dourado/20 text-xs flex items-center gap-2.5"
-                        >
-                          <span className="w-6 h-6 rounded-full bg-pastoral-cafe text-white font-bold flex items-center justify-center text-[10px] flex-shrink-0">
-                            {item.order || pIdx + 1}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <span className="font-bold text-pastoral-cafe block truncate">
-                              {item.speaker_name}
-                            </span>
-                            <span className="text-[11px] text-zinc-600 block truncate" title={item.theme_title}>
-                              {item.theme_title || 'Tema Livre / A Definir'}
-                            </span>
-                          </div>
+                    {/* Sorteio Participants Grid or Groups */}
+                    {draw.groups && draw.groups.length > 0 ? (
+                      <div className="pt-3 space-y-3">
+                        <div className="text-[11px] font-semibold text-zinc-500">
+                          {draw.groups.length} grupos balanceados ({participants.length} pregadores)
                         </div>
-                      ))}
-                    </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {draw.groups.map((grp: any) => (
+                            <div key={grp.group_number} className="p-3 rounded-xl bg-pastoral-creme/30 border border-pastoral-dourado/20 space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-pastoral-cafe border-b border-pastoral-dourado/10 pb-1.5">
+                                <span>{grp.group_name}</span>
+                                <span className="text-[10px] text-pastoral-vinho font-semibold">
+                                  ⏱ {grp.total_duration_minutes || (grp.speakers_count * (draw.duration_minutes || 20))} min
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                {grp.speakers.map((sp: any) => (
+                                  <div key={sp.order} className="text-xs flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white/70">
+                                    <div className="min-w-0 flex items-center gap-1.5">
+                                      <span className="w-4 h-4 rounded-full bg-pastoral-cafe text-white font-bold text-[9px] flex items-center justify-center flex-shrink-0">
+                                        {sp.order}
+                                      </span>
+                                      <span className="font-semibold text-pastoral-cafe truncate">{sp.speaker_name}</span>
+                                      <span className="text-[11px] text-zinc-500 truncate">- {sp.theme_title}</span>
+                                    </div>
+                                    <span className="text-[10px] text-zinc-400 flex-shrink-0">{sp.duration_minutes || 20}m</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                        {participants.map((item: any, pIdx: number) => (
+                          <div
+                            key={pIdx}
+                            className="p-3 rounded-xl bg-pastoral-creme/40 border border-pastoral-dourado/20 text-xs flex items-center gap-2.5"
+                          >
+                            <span className="w-6 h-6 rounded-full bg-pastoral-cafe text-white font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                              {item.order || pIdx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <span className="font-bold text-pastoral-cafe block truncate">
+                                {item.speaker_name}
+                              </span>
+                              <span className="text-[11px] text-zinc-600 block truncate" title={item.theme_title}>
+                                {item.theme_title || 'Tema Livre / A Definir'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1318,6 +1426,26 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                   className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
+                  Categoria *
+                </label>
+                <select
+                  value={themeModalCategory}
+                  onChange={(e) => setThemeModalCategory(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-300 bg-white"
+                >
+                  <option value="Pregação">Pregação</option>
+                  <option value="Espiritualidade">Espiritualidade</option>
+                  <option value="Doutrina e Catecismo">Doutrina e Catecismo</option>
+                  <option value="Oração e Intercessão">Oração e Intercessão</option>
+                  <option value="Vida Missionária">Vida Missionária</option>
+                  <option value="Bíblia">Bíblia</option>
+                  <option value="Testemunho">Testemunho</option>
+                  <option value="Outros">Outros</option>
+                </select>
               </div>
 
               <div>

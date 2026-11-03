@@ -106,7 +106,7 @@ platformRouter.get('/overview', authenticateToken, (_req: AuthenticatedRequest, 
 
 // 3. CALENDAR ROUTES (/api/platform/calendar)
 platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { category, month, status } = req.query;
+  const { category, month, status, year, include_birthdays = 'true' } = req.query;
   let sql = 'SELECT * FROM calendar_events WHERE 1=1';
   const params: any[] = [];
 
@@ -122,15 +122,69 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
     sql += " AND strftime('%m', event_date) = ?";
     params.push(month);
   }
+  if (year && typeof year === 'string' && year.length === 4) {
+    sql += " AND strftime('%Y', event_date) = ?";
+    params.push(year);
+  }
 
   sql += ' ORDER BY event_date ASC';
-  const events = db.prepare(sql).all(...params).map((ev: any) => ({
+  const dbEvents = db.prepare(sql).all(...params).map((ev: any) => ({
     ...ev,
     responsibles: JSON.parse(ev.responsibles_json || '[]'),
     materials: JSON.parse(ev.materials_json || '[]'),
+    is_birthday: false,
   }));
 
-  return res.json(events);
+  const allowBirthdays =
+    include_birthdays !== 'false' &&
+    (!category || category === 'Todas' || category === 'Outros' || category === 'Aniversários') &&
+    (!status || status === 'Todos' || status === 'Confirmado');
+
+  let birthdayEvents: any[] = [];
+  if (allowBirthdays) {
+    const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
+    const targetYears = year && typeof year === 'string' && year.length === 4 ? [Number(year)] : [2026, 2027];
+
+    const membersWithBday = db.prepare(`
+      SELECT id, name, display_name, pastoral_role, status, email, birth_day, birth_month, birth_year, birthday_visibility, created_at, updated_at
+      FROM pastoral_members
+      WHERE status != 'inativo' AND birth_day IS NOT NULL AND birth_month IS NOT NULL
+    `).all() as any[];
+
+    for (const y of targetYears) {
+      for (const m of membersWithBday) {
+        if (m.birthday_visibility === 'private' && m.email !== req.user?.email) continue;
+        if (m.birthday_visibility === 'coordinators_only' && !isCoordinator && m.email !== req.user?.email) continue;
+        if (month && typeof month === 'string' && Number(month) !== m.birth_month) continue;
+
+        const dateStr = `${y}-${String(m.birth_month).padStart(2, '0')}-${String(m.birth_day).padStart(2, '0')}`;
+        birthdayEvents.push({
+          id: `bday_${m.id}_${y}`,
+          external_stable_id: `bday_${m.id}_${y}`,
+          title: `🎂 Aniversário: ${m.display_name}`,
+          description: `Comemoração fraterna do aniversário de ${m.name} (${m.pastoral_role}).`,
+          event_date: dateStr,
+          event_time: '00:00',
+          location: 'Pastoral Missionária',
+          category: 'Outros',
+          status: 'Confirmado',
+          visibility: 'publico',
+          responsibles: [m.display_name],
+          materials: [],
+          notes: 'Aniversariante da Pastoral Missionária.',
+          source: 'Aniversários dos Missionários',
+          is_birthday: true,
+          member_id: m.id,
+          birth_year: m.birth_year || null,
+          created_at: m.created_at || new Date().toISOString(),
+          updated_at: m.updated_at || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const allEvents = [...dbEvents, ...birthdayEvents].sort((a, b) => a.event_date.localeCompare(b.event_date));
+  return res.json(allEvents);
 });
 
 platformRouter.post('/calendar', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
@@ -241,6 +295,7 @@ platformRouter.get('/labs/draws', authenticateToken, (_req: AuthenticatedRequest
   `).all().map((d: any) => ({
     ...d,
     participants: JSON.parse(d.participants_json || '[]'),
+    groups: JSON.parse(d.groups_json || '[]'),
     rules: JSON.parse(d.rules_json || '{}'),
   }));
   return res.json(draws);
@@ -256,6 +311,19 @@ function shuffleArray<T>(array: T[]): T[] {
   return arr;
 }
 
+// Partição de grupos balanceados (Regra Máx 4 por grupo — Seção 7.2)
+export function partitionIntoBalancedGroups(n: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [1];
+  if (n === 2) return [2];
+  if (n === 3) return [3];
+  if (n === 5) return [3, 2];
+  const g = Math.ceil(n / 4);
+  const k4 = n - 3 * g;
+  const k3 = 4 * g - n;
+  return [...Array(k4).fill(4), ...Array(k3).fill(3)];
+}
+
 platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { title, lab_date, duration_minutes = 20, speakers, notes, draw_mode = 'order_and_theme', allow_repeat = false } = req.body;
 
@@ -265,7 +333,7 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
 
   const themes = db.prepare('SELECT * FROM lab_themes WHERE active = 1 ORDER BY theme_number ASC').all() as any[];
 
-  // Regra especial para 20 participantes (ou quando participantes superarem temas disponíveis):
+  // Confirmação obrigatória quando participantes superarem temas disponíveis
   if (draw_mode === 'order_and_theme' && speakers.length > themes.length && !allow_repeat) {
     return res.status(409).json({
       error: `Existem ${speakers.length} participantes selecionados, mas apenas ${themes.length} temas disponíveis. Deseja adicionar mais um tema ou autorizar a repetição com confirmação?`,
@@ -278,24 +346,49 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
   const shuffledSpeakers = shuffleArray(speakers);
   const shuffledThemes = shuffleArray(themes);
 
-  const drawResults = shuffledSpeakers.map((speakerName, idx) => {
-    if (draw_mode === 'order_only' || shuffledThemes.length === 0) {
-      return {
-        order: idx + 1,
+  const groupSizes = partitionIntoBalancedGroups(shuffledSpeakers.length);
+  const durationPerSpeaker = Number(duration_minutes) || 20;
+
+  let speakerIdx = 0;
+  const groups: any[] = [];
+  const drawResults: any[] = [];
+
+  groupSizes.forEach((size, groupIdx) => {
+    const groupNumber = groupIdx + 1;
+    const groupMembers: any[] = [];
+
+    for (let orderInGroup = 1; orderInGroup <= size; orderInGroup++) {
+      const speakerName = shuffledSpeakers[speakerIdx];
+      let themeNumber: number | null = null;
+      let themeTitle = 'Tema Livre / A Definir';
+
+      if (draw_mode !== 'order_only' && shuffledThemes.length > 0) {
+        const theme = shuffledThemes[speakerIdx % shuffledThemes.length];
+        themeNumber = theme.theme_number;
+        themeTitle = theme.title;
+      }
+
+      const participant = {
+        order: speakerIdx + 1,
+        order_in_group: orderInGroup,
+        group_number: groupNumber,
         speaker_name: speakerName,
-        theme_number: null,
-        theme_title: 'Tema Livre / A Definir',
-        duration_minutes: Number(duration_minutes) || 20,
+        theme_number: themeNumber,
+        theme_title: themeTitle,
+        duration_minutes: durationPerSpeaker,
       };
+
+      groupMembers.push(participant);
+      drawResults.push(participant);
+      speakerIdx++;
     }
-    const theme = shuffledThemes[idx % shuffledThemes.length];
-    return {
-      order: idx + 1,
-      speaker_name: speakerName,
-      theme_number: theme.theme_number,
-      theme_title: theme.title,
-      duration_minutes: Number(duration_minutes) || 20,
-    };
+
+    groups.push({
+      group_number: groupNumber,
+      group_title: `Grupo ${groupNumber}`,
+      duration_minutes: groupMembers.length * durationPerSpeaker,
+      members: groupMembers,
+    });
   });
 
   const labId = 'lab_' + crypto.randomBytes(6).toString('hex');
@@ -313,7 +406,7 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
     labId,
     labTitle,
     labDateStr,
-    Number(duration_minutes) || 20,
+    durationPerSpeaker,
     JSON.stringify(drawResults),
     notes?.trim() || '',
     now
@@ -322,24 +415,27 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
   // Grava na tabela dedicada lab_draws para histórico auditável
   const rules = {
     draw_mode,
+    distribution: groupSizes,
+    groups_count: groups.length,
     allow_repeat: speakers.length > themes.length ? allow_repeat : false,
-    duration_minutes: Number(duration_minutes) || 20,
+    duration_minutes: durationPerSpeaker,
   };
 
   db.prepare(`
     INSERT INTO lab_draws (
       id, laboratory_date, laboratory_name, coordinator_name, draw_date,
-      duration_minutes, participants_count, participants_json, rules_json, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativo', ?, ?)
+      duration_minutes, participants_count, participants_json, groups_json, rules_json, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativo', ?, ?)
   `).run(
     drawId,
     labDateStr,
     labTitle,
     coordinatorName,
     now.split('T')[0],
-    Number(duration_minutes) || 20,
+    durationPerSpeaker,
     speakers.length,
     JSON.stringify(drawResults),
+    JSON.stringify(groups),
     JSON.stringify(rules),
     now,
     now
@@ -349,10 +445,12 @@ platformRouter.post('/labs/draw', authenticateToken, requireRole(['admin', 'coor
     id: labId,
     draw_id: drawId,
     draw_results: drawResults,
-    duration_minutes: Number(duration_minutes) || 20,
+    groups,
+    distribution: groupSizes,
+    duration_minutes: durationPerSpeaker,
     message: draw_mode === 'order_only'
-      ? 'Sorteio da ordem de pregação realizado com sucesso!'
-      : 'Sorteio de temas e ordem de apresentação realizado com sucesso!',
+      ? `Sorteio de ordem realizado com sucesso! ${speakers.length} pregadores divididos em ${groups.length} grupos.`
+      : `Sorteio de temas e grupos realizado com sucesso! ${speakers.length} pregadores distribuídos em ${groups.length} grupos equilibrados.`,
   });
 });
 
@@ -372,43 +470,83 @@ platformRouter.delete('/labs/draws/:id', authenticateToken, requireRole(['admin'
   return res.json({ message: 'Sorteio removido do histórico com sucesso!' });
 });
 
-// CRUD de Temas de Laboratório (Seção 28)
+// CRUD de Temas de Laboratório (Seção 5 e 28)
 platformRouter.post('/labs/themes', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
-  const { title, description } = req.body;
+  const { title, category, description } = req.body;
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'O título do tema é obrigatório.' });
   }
 
-  const maxTheme = db.prepare('SELECT MAX(theme_number) as max_num FROM lab_themes').get() as any;
-  const nextNum = (maxTheme?.max_num || 0) + 1;
-  const themeId = 'thm_' + crypto.randomBytes(4).toString('hex');
+  try {
+    const existing = db.prepare('SELECT id FROM lab_themes WHERE LOWER(title) = LOWER(?)').get(title.trim());
+    if (existing) {
+      return res.status(409).json({ error: 'Já existe um tema cadastrado com este título.' });
+    }
 
-  db.prepare(`
-    INSERT INTO lab_themes (id, theme_number, title, description, active)
-    VALUES (?, ?, ?, ?, 1)
-  `).run(themeId, nextNum, title.trim(), description?.trim() || '');
+    const maxTheme = db.prepare('SELECT MAX(theme_number) as max_num FROM lab_themes').get() as any;
+    const nextNum = (maxTheme?.max_num || 0) + 1;
+    const themeId = 'thm_' + crypto.randomBytes(4).toString('hex');
+    const finalCategory = category?.trim() || 'Formação Pastoral';
 
-  return res.status(201).json({ message: 'Tema cadastrado com sucesso!', themeId });
+    db.prepare(`
+      INSERT INTO lab_themes (id, theme_number, title, category, description, active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `).run(themeId, nextNum, title.trim(), finalCategory, description?.trim() || '');
+
+    return res.status(201).json({
+      message: 'Tema cadastrado com sucesso!',
+      themeId,
+      theme: {
+        id: themeId,
+        theme_number: nextNum,
+        title: title.trim(),
+        category: finalCategory,
+        description: description?.trim() || '',
+        active: 1
+      }
+    });
+  } catch (err: any) {
+    console.error('Erro ao salvar tema:', err);
+    return res.status(500).json({
+      error: 'Não foi possível salvar o tema. Nenhum registro foi alterado. Tente novamente ou informe a coordenação.',
+      details: err.message
+    });
+  }
 });
 
 platformRouter.put('/labs/themes/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const { title, description, active } = req.body;
+  const { title, category, description, active } = req.body;
 
-  const existing = db.prepare('SELECT id FROM lab_themes WHERE id = ?').get(id);
-  if (!existing) {
-    return res.status(404).json({ error: 'Tema não encontrado.' });
+  try {
+    const existing = db.prepare('SELECT id FROM lab_themes WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Tema não encontrado.' });
+    }
+
+    db.prepare(`
+      UPDATE lab_themes
+      SET title = COALESCE(?, title),
+          category = COALESCE(?, category),
+          description = COALESCE(?, description),
+          active = COALESCE(?, active)
+      WHERE id = ?
+    `).run(
+      title?.trim() || null,
+      category?.trim() || null,
+      description?.trim() || null,
+      active !== undefined ? (active ? 1 : 0) : null,
+      id
+    );
+
+    return res.json({ message: 'Tema atualizado com sucesso!' });
+  } catch (err: any) {
+    console.error('Erro ao atualizar tema:', err);
+    return res.status(500).json({
+      error: 'Não foi possível atualizar o tema. Tente novamente.',
+      details: err.message
+    });
   }
-
-  db.prepare(`
-    UPDATE lab_themes
-    SET title = COALESCE(?, title),
-        description = COALESCE(?, description),
-        active = COALESCE(?, active)
-    WHERE id = ?
-  `).run(title?.trim() || null, description?.trim() || null, active !== undefined ? (active ? 1 : 0) : null, id);
-
-  return res.json({ message: 'Tema atualizado com sucesso!' });
 });
 
 platformRouter.patch('/labs/themes/:id/archive', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
@@ -638,6 +776,221 @@ platformRouter.post('/announcements', authenticateToken, requireRole(['admin', '
 });
 
 // 7. GOVERNANCE, PASTORAL MEMBERS, DELEGATIONS & SUCCESSION (/api/platform/governance)
+// GET /api/platform/members (Listagem e Busca com Filtros)
+platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { search, role, status, qualification } = req.query;
+  let sql = 'SELECT * FROM pastoral_members WHERE 1=1';
+  const params: any[] = [];
+
+  if (role && role !== 'todos') {
+    sql += ' AND pastoral_role = ?';
+    params.push(role);
+  }
+  if (status && status !== 'todos') {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  if (search && typeof search === 'string' && search.trim()) {
+    const raw = search.trim();
+    const term = `%${raw}%`;
+    sql += ' AND (name LIKE ? OR display_name LIKE ? OR email LIKE ? OR phone LIKE ?)';
+    params.push(term, term, term, term);
+  }
+
+  sql += ' ORDER BY CASE pastoral_role WHEN "coordenador" THEN 1 WHEN "admin" THEN 2 WHEN "delegado" THEN 3 ELSE 4 END, name ASC';
+  const rows = db.prepare(sql).all(...params).map((m: any) => ({
+    ...m,
+    qualifications: JSON.parse(m.qualifications_json || '[]'),
+    skills: JSON.parse(m.skills_json || '[]'),
+    availability: JSON.parse(m.availability_json || '{}'),
+    welcome_checklist: JSON.parse(m.welcome_checklist_json || '{}'),
+  }));
+
+  let filtered = rows;
+  if (qualification && qualification !== 'todas') {
+    filtered = rows.filter((m: any) => m.qualifications.includes(qualification));
+  }
+
+  return res.json(filtered);
+});
+
+// GET /api/platform/members/birthdays (Aniversariantes do dia, mês e próximos)
+platformRouter.get('/members/birthdays', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
+
+  const nowSP = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+  }).formatToParts(new Date());
+
+  const currentDay = Number(nowSP.find((p) => p.type === 'day')?.value || 1);
+  const currentMonth = Number(nowSP.find((p) => p.type === 'month')?.value || 1);
+  const currentYear = Number(nowSP.find((p) => p.type === 'year')?.value || 2026);
+
+  const members = db.prepare(`
+    SELECT id, name, display_name, pastoral_role, status, email, phone, photo_url,
+           birth_day, birth_month, birth_year, birthday_visibility, notes
+    FROM pastoral_members
+    WHERE status != 'inativo' AND birth_day IS NOT NULL AND birth_month IS NOT NULL
+    ORDER BY birth_month ASC, birth_day ASC
+  `).all() as any[];
+
+  const allowed = members.filter((m) => {
+    if (m.birthday_visibility === 'private' && m.email !== req.user?.email) return false;
+    if (m.birthday_visibility === 'coordinators_only' && !isCoordinator && m.email !== req.user?.email) return false;
+    return true;
+  });
+
+  const today = allowed.filter((m) => m.birth_day === currentDay && m.birth_month === currentMonth);
+  const thisMonth = allowed.filter((m) => m.birth_month === currentMonth).sort((a, b) => a.birth_day - b.birth_day);
+
+  return res.json({
+    current_date: { day: currentDay, month: currentMonth, year: currentYear },
+    today,
+    this_month: thisMonth,
+    all_celebrants: allowed,
+  });
+});
+
+// POST /api/platform/members (Cadastrar Novo Missionário)
+platformRouter.post('/members', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const {
+    name, display_name, email, phone, pastoral_role = 'membro', status = 'ativo',
+    joined_at, qualifications, skills, birth_day, birth_month, birth_year, birthday_visibility = 'members', notes
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'O nome do missionário é obrigatório.' });
+  }
+
+  const id = 'pmem_' + crypto.randomBytes(6).toString('hex');
+  const now = new Date().toISOString();
+  const finalDisplayName = display_name?.trim() || name.trim().split(' ')[0];
+
+  db.prepare(`
+    INSERT INTO pastoral_members (
+      id, name, display_name, email, phone, pastoral_role, status, joined_at,
+      qualifications_json, skills_json, birth_day, birth_month, birth_year,
+      birthday_visibility, notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    name.trim(),
+    finalDisplayName,
+    email?.trim() || null,
+    phone?.trim() || null,
+    pastoral_role,
+    status,
+    joined_at || now.split('T')[0],
+    JSON.stringify(Array.isArray(qualifications) && qualifications.length > 0 ? qualifications : ['Intercessão']),
+    JSON.stringify(Array.isArray(skills) ? skills : []),
+    birth_day ? Number(birth_day) : null,
+    birth_month ? Number(birth_month) : null,
+    birth_year ? Number(birth_year) : null,
+    birthday_visibility || 'members',
+    notes?.trim() || null,
+    now,
+    now
+  );
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'CREATE_PASTORAL_MEMBER', 'pastoral_member', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ name, pastoral_role }), now);
+
+  return res.status(201).json({
+    id,
+    message: 'Missionário cadastrado com sucesso!',
+    member: { id, name: name.trim(), display_name: finalDisplayName, pastoral_role, status }
+  });
+});
+
+// PUT /api/platform/members/:id (Edição Completa de Cadastro de Missionário)
+platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const existing = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  const {
+    name, display_name, email, phone, pastoral_role, status, joined_at,
+    qualifications, skills, birth_day, birth_month, birth_year, birthday_visibility, notes
+  } = req.body;
+
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE pastoral_members
+    SET name = COALESCE(?, name),
+        display_name = COALESCE(?, display_name),
+        email = ?,
+        phone = ?,
+        pastoral_role = COALESCE(?, pastoral_role),
+        status = COALESCE(?, status),
+        joined_at = COALESCE(?, joined_at),
+        qualifications_json = COALESCE(?, qualifications_json),
+        skills_json = COALESCE(?, skills_json),
+        birth_day = ?,
+        birth_month = ?,
+        birth_year = ?,
+        birthday_visibility = COALESCE(?, birthday_visibility),
+        notes = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    name?.trim() || null,
+    display_name?.trim() || null,
+    email !== undefined ? (email?.trim() || null) : existing.email,
+    phone !== undefined ? (phone?.trim() || null) : existing.phone,
+    pastoral_role || null,
+    status || null,
+    joined_at || null,
+    Array.isArray(qualifications) ? JSON.stringify(qualifications) : null,
+    Array.isArray(skills) ? JSON.stringify(skills) : null,
+    birth_day !== undefined ? (birth_day ? Number(birth_day) : null) : existing.birth_day,
+    birth_month !== undefined ? (birth_month ? Number(birth_month) : null) : existing.birth_month,
+    birth_year !== undefined ? (birth_year ? Number(birth_year) : null) : existing.birth_year,
+    birthday_visibility || null,
+    notes !== undefined ? (notes?.trim() || null) : existing.notes,
+    now,
+    id
+  );
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_FULL', 'pastoral_member', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
+
+  return res.json({ message: 'Cadastro do missionário atualizado com sucesso!' });
+});
+
+// PATCH /api/platform/members/:id/status (Ativação / Inativação / Arquivamento)
+platformRouter.patch('/members/:id/status', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!['ativo', 'pendente', 'inativo', 'arquivado'].includes(status)) {
+    return res.status(400).json({ error: 'Status inválido.' });
+  }
+
+  const existing = db.prepare('SELECT id, name FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE pastoral_members SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_STATUS', 'pastoral_member', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ status }), now);
+
+  return res.json({ message: `Status de ${existing.name} alterado para "${status}".` });
+});
+
 platformRouter.get('/governance', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
   const pastoralMembers = db.prepare('SELECT * FROM pastoral_members ORDER BY pastoral_role ASC, name ASC').all().map((m: any) => ({
     ...m,
@@ -669,22 +1022,51 @@ platformRouter.get('/governance', authenticateToken, (_req: AuthenticatedRequest
 
 platformRouter.patch('/governance/members/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const { status, pastoral_role, qualifications, skills } = req.body;
+  const existing = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  const {
+    name, display_name, email, phone, status, pastoral_role, joined_at,
+    qualifications, skills, birth_day, birth_month, birth_year, birthday_visibility, notes
+  } = req.body;
+
   const now = new Date().toISOString();
 
   db.prepare(`
     UPDATE pastoral_members
-    SET status = COALESCE(?, status),
+    SET name = COALESCE(?, name),
+        display_name = COALESCE(?, display_name),
+        email = COALESCE(?, email),
+        phone = COALESCE(?, phone),
+        status = COALESCE(?, status),
         pastoral_role = COALESCE(?, pastoral_role),
+        joined_at = COALESCE(?, joined_at),
         qualifications_json = COALESCE(?, qualifications_json),
         skills_json = COALESCE(?, skills_json),
+        birth_day = COALESCE(?, birth_day),
+        birth_month = COALESCE(?, birth_month),
+        birth_year = COALESCE(?, birth_year),
+        birthday_visibility = COALESCE(?, birthday_visibility),
+        notes = COALESCE(?, notes),
         updated_at = ?
     WHERE id = ?
   `).run(
+    name?.trim() || null,
+    display_name?.trim() || null,
+    email?.trim() || null,
+    phone?.trim() || null,
     status || null,
     pastoral_role || null,
+    joined_at || null,
     Array.isArray(qualifications) ? JSON.stringify(qualifications) : null,
     Array.isArray(skills) ? JSON.stringify(skills) : null,
+    birth_day ? Number(birth_day) : null,
+    birth_month ? Number(birth_month) : null,
+    birth_year ? Number(birth_year) : null,
+    birthday_visibility || null,
+    notes?.trim() || null,
     now,
     id
   );
@@ -692,9 +1074,9 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_GOVERNANCE', 'pastoral_member', ?, ?, ?)
-  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ status, pastoral_role, qualifications }), now);
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
 
-  return res.json({ message: 'Cadastro institucional e habilitações do membro atualizados.' });
+  return res.json({ message: 'Cadastro institucional e habilitações do membro atualizados com sucesso.' });
 });
 
 platformRouter.post('/governance/capabilities', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {

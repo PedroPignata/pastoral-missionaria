@@ -17,7 +17,7 @@ interface HeaderProps {
 const VIEW_TITLES: Record<NavItemKey, { title: string; subtitle?: string }> = {
   painel_missionario: { title: 'Painel Missionário', subtitle: 'Visão Geral da Pastoral' },
   comunidade: { title: 'Comunidade Missionária', subtitle: 'Partilhas e Vivências' },
-  calendario_2027: { title: 'Calendário Pastoral 2027', subtitle: 'Datas Oficiais e Encontros' },
+  calendario_2027: { title: 'Calendário da Pastoral Missionária', subtitle: 'Atividades e Encontros' },
   missoes_envios: { title: 'Missões & Envios', subtitle: 'Solicitações e Escalas' },
   formacao_laboratorios: { title: 'Laboratórios de Pregação', subtitle: 'Formação e Sorteios' },
   minha_camiseta: { title: 'Minha Camiseta & Pix', subtitle: 'Consulta e Pagamento' },

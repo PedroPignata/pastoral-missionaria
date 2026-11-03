@@ -435,7 +435,7 @@ export const api = {
     return handleResponse<any>(res);
   },
 
-  async createLabTheme(data: { title: string; description?: string }) {
+  async createLabTheme(data: { title: string; category?: string; description?: string }) {
     const res = await fetch(`${API_BASE}/platform/labs/themes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -444,7 +444,7 @@ export const api = {
     return handleResponse<any>(res);
   },
 
-  async updateLabTheme(id: string, data: { title?: string; description?: string; active?: boolean }) {
+  async updateLabTheme(id: string, data: { title?: string; category?: string; description?: string; active?: boolean }) {
     const res = await fetch(`${API_BASE}/platform/labs/themes/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -468,6 +468,54 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse<any>(res);
+  },
+
+  async getPastoralMembers(params?: { search?: string; role?: string; status?: string; qualification?: string }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.role) query.append('role', params.role);
+    if (params?.status) query.append('status', params.status);
+    if (params?.qualification) query.append('qualification', params.qualification);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/platform/members${qs}`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async createPastoralMember(data: any) {
+    const res = await fetch(`${API_BASE}/platform/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async updatePastoralMember(id: string, data: any) {
+    const res = await fetch(`${API_BASE}/platform/members/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async setPastoralMemberStatus(id: string, status: string) {
+    const res = await fetch(`${API_BASE}/platform/members/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getMemberBirthdays() {
+    const res = await fetch(`${API_BASE}/platform/members/birthdays`, { headers: getAuthHeader() });
+    return handleResponse<{
+      current_date: { day: number; month: number; year: number };
+      today: any[];
+      this_month: any[];
+      all_celebrants: any[];
+    }>(res);
   },
 
   async getDispatches() {

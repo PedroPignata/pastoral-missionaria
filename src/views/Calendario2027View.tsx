@@ -64,8 +64,38 @@ export const Calendario2027View: React.FC = () => {
 
   // View state: 'mes' (default grid), 'lista' (agenda), 'ano' (12 mini-grids)
   const [viewMode, setViewMode] = useState<'mes' | 'lista' | 'ano'>('mes');
-  const [currentYear, setCurrentYear] = useState<number>(2027);
-  const [currentMonth, setCurrentMonth] = useState<number>(0); // 0 = Janeiro
+
+  // Obter data real no fuso America/Sao_Paulo (Seção 4.2)
+  const todaySP = useMemo(() => {
+    try {
+      const parts = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      }).formatToParts(new Date());
+      const y = Number(parts.find((p) => p.type === 'year')?.value || 2026);
+      const m = Number(parts.find((p) => p.type === 'month')?.value || 11) - 1;
+      const d = Number(parts.find((p) => p.type === 'day')?.value || 3);
+      return {
+        year: y,
+        month: m,
+        day: d,
+        isoDate: `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      };
+    } catch {
+      const d = new Date();
+      return {
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        day: d.getDate(),
+        isoDate: d.toISOString().split('T')[0],
+      };
+    }
+  }, []);
+
+  const [currentYear, setCurrentYear] = useState<number>(todaySP.year);
+  const [currentMonth, setCurrentMonth] = useState<number>(todaySP.month);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
 
   // Selected Day Details Modal
@@ -74,12 +104,24 @@ export const Calendario2027View: React.FC = () => {
   // Modal state for creating new event
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState('2027-01-24');
+  const [eventDate, setEventDate] = useState(todaySP.isoDate);
   const [eventTime, setEventTime] = useState('');
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState('Reuniões');
   const [status, setStatus] = useState('Planejado');
   const [description, setDescription] = useState('');
+
+  const yearOptions = useMemo(() => {
+    const setYears = new Set<number>([todaySP.year, 2026, 2027]);
+    for (const ev of events) {
+      const y = parseInt(ev.event_date?.slice(0, 4), 10);
+      if (!isNaN(y)) setYears.add(y);
+    }
+    for (let i = -1; i <= 2; i++) {
+      setYears.add(todaySP.year + i);
+    }
+    return Array.from(setYears).sort((a, b) => a - b);
+  }, [events, todaySP.year]);
 
   const loadEvents = async () => {
     setLoading(true);
@@ -164,9 +206,9 @@ export const Calendario2027View: React.FC = () => {
   };
 
   const handleToday = () => {
-    const now = new Date();
-    setCurrentYear(now.getFullYear());
-    setCurrentMonth(now.getMonth());
+    setCurrentYear(todaySP.year);
+    setCurrentMonth(todaySP.month);
+    setSelectedDateStr(todaySP.isoDate);
   };
 
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -310,10 +352,11 @@ export const Calendario2027View: React.FC = () => {
                 onChange={(e) => setCurrentYear(parseInt(e.target.value, 10))}
                 className="px-3 py-1.5 rounded-xl border border-zinc-200 text-xs font-bold text-pastoral-cafe bg-white focus:ring-1 focus:ring-pastoral-dourado"
               >
-                <option value={2026}>2026</option>
-                <option value={2027}>2027 (Oficial)</option>
-                <option value={2028}>2028</option>
-                <option value={2029}>2029</option>
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y} {y === 2027 ? '(Oficial)' : y === todaySP.year ? '(Atual)' : ''}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -409,22 +452,21 @@ export const Calendario2027View: React.FC = () => {
               }
 
               const dayEvents = eventsByDate[item.dateStr] || [];
-              const isToday =
-                new Date().toISOString().split('T')[0] === item.dateStr;
+              const isToday = item.dateStr === todaySP.isoDate;
 
               return (
                 <div
                   key={item.dateStr}
                   onClick={() => setSelectedDateStr(item.dateStr)}
                   className={`min-h-[100px] sm:min-h-[120px] p-2 flex flex-col justify-between cursor-pointer hover:bg-pastoral-creme/20 transition-colors group relative ${
-                    isToday ? 'bg-amber-50/40' : 'bg-white'
+                    isToday ? 'bg-amber-50/50 ring-2 ring-pastoral-dourado/60' : 'bg-white'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span
                       className={`text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center transition-all ${
                         isToday
-                          ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs'
+                          ? 'bg-pastoral-dourado text-pastoral-profundo shadow-2xs font-extrabold'
                           : 'text-zinc-700 group-hover:text-pastoral-cafe'
                       }`}
                     >
@@ -440,8 +482,102 @@ export const Calendario2027View: React.FC = () => {
                   {/* Badges on Desktop */}
                   <div className="mt-1 space-y-1 flex-1 overflow-hidden hidden sm:block">
                     {dayEvents.slice(0, 3).map((ev) => {
+                      if (ev.is_birthday) {
+                        if (ev.is_birthday) {
+                    return (
+                      <div
+                        key={ev.id}
+                        className="p-4 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                            🎂 Aniversário Missionário
+                          </span>
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-200">
+                            Comemoração
+                          </span>
+                        </div>
+
+                        <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
+                          {ev.title}
+                        </h4>
+
+                        <p className="text-xs text-amber-900/80 leading-relaxed">
+                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
+                        </p>
+
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
+                              navigator.clipboard.writeText(msg);
+                              setFeedback('Mensagem de felicitações copiada para a área de transferência!');
+                              setTimeout(() => setFeedback(''), 4000);
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-semibold transition-colors flex items-center gap-1.5"
+                          >
+                            <span>Copiar Felicitação para WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                          <div
+                            key={ev.id}
+                            className="px-1.5 py-0.5 rounded-md text-[10px] font-bold truncate flex items-center gap-1 bg-amber-100/90 text-amber-900 border border-amber-300/80"
+                            title={ev.title}
+                          >
+                            <span>🎂</span>
+                            <span className="truncate">{ev.title.replace('🎂 Aniversário: ', '')}</span>
+                          </div>
+                        );
+                      }
                       const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
-                      return (
+                      if (ev.is_birthday) {
+                    return (
+                      <div
+                        key={ev.id}
+                        className="p-4 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                            🎂 Aniversário Missionário
+                          </span>
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-200">
+                            Comemoração
+                          </span>
+                        </div>
+
+                        <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
+                          {ev.title}
+                        </h4>
+
+                        <p className="text-xs text-amber-900/80 leading-relaxed">
+                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
+                        </p>
+
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
+                              navigator.clipboard.writeText(msg);
+                              setFeedback('Mensagem de felicitações copiada para a área de transferência!');
+                              setTimeout(() => setFeedback(''), 4000);
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-semibold transition-colors flex items-center gap-1.5"
+                          >
+                            <span>Copiar Felicitação para WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
                         <div
                           key={ev.id}
                           className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold truncate flex items-center gap-1 ${color.bg} ${color.text} border border-black/5`}
@@ -466,7 +602,7 @@ export const Calendario2027View: React.FC = () => {
                       return (
                         <span
                           key={ev.id}
-                          className={`w-2 h-2 rounded-full ${color.dot}`}
+                          className={`w-2 h-2 rounded-full ${ev.is_birthday ? 'bg-amber-400' : color.dot}`}
                         />
                       );
                     })}
@@ -638,6 +774,47 @@ export const Calendario2027View: React.FC = () => {
               <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                 {selectedDayEvents.map((ev) => {
                   const color = CATEGORY_COLORS[ev.category] || CATEGORY_COLORS.Outros;
+                  if (ev.is_birthday) {
+                    return (
+                      <div
+                        key={ev.id}
+                        className="p-4 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                            🎂 Aniversário Missionário
+                          </span>
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-200">
+                            Comemoração
+                          </span>
+                        </div>
+
+                        <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
+                          {ev.title}
+                        </h4>
+
+                        <p className="text-xs text-amber-900/80 leading-relaxed">
+                          {ev.description || 'Comemoração fraterna com orações e agradecimento a Deus pela sua vocação missionária.'}
+                        </p>
+
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const msg = `Parabéns, ${ev.responsibles?.[0] || 'irmão(ã)'}! Que Deus abençoe sua vida, fortaleça sua caminhada na Pastoral Missionária e derrame muitas graças sobre você. Feliz aniversário! 🎂🎉`;
+                              navigator.clipboard.writeText(msg);
+                              setFeedback('Mensagem de felicitações copiada para a área de transferência!');
+                              setTimeout(() => setFeedback(''), 4000);
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-semibold transition-colors flex items-center gap-1.5"
+                          >
+                            <span>Copiar Felicitação para WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={ev.id}
