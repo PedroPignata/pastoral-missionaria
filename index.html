@@ -14,8 +14,29 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-pastoral-creme text-pastoral-grafite antialiased selection:bg-pastoral-dourado selection:text-white min-h-screen">
-    <div id="root"></div>
+  <body class="bg-pastoral-profundo text-pastoral-grafite antialiased selection:bg-pastoral-dourado selection:text-white min-h-screen">
+    <div id="root">
+      <div id="initial-loading-fallback" style="min-height: 100vh; background-color: #281F1C; display: flex; align-items: center; justify-content: center; color: white; font-family: 'Cinzel', serif;">
+        <div style="text-align: center;">
+          <div style="font-size: 36px; margin-bottom: 12px; color: #B68B4B;">✝</div>
+          <div style="font-size: 18px; font-weight: bold; letter-spacing: 1px;">Pastoral Missionária</div>
+          <div style="font-size: 11px; color: #B68B4B; margin-top: 6px; font-family: sans-serif; letter-spacing: 0.5px;">Carregando ecossistema pastoral...</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function(e) {
+        var fb = document.getElementById('initial-loading-fallback');
+        if (fb) {
+          fb.innerHTML = '<div style="max-width: 420px; background: white; color: #3C2D29; padding: 24px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-family: sans-serif; text-align: center; margin: 16px;">' +
+            '<div style="font-size: 28px; color: #8E303B; margin-bottom: 8px;">⚠️</div>' +
+            '<h3 style="margin: 0 0 8px; font-family: Cinzel, serif;">Aviso de Carregamento</h3>' +
+            '<p style="font-size: 12px; color: #666; margin-bottom: 16px;">Detectamos uma inconsistência no cache do seu navegador.</p>' +
+            '<button onclick="localStorage.clear(); sessionStorage.clear(); location.reload();" style="width: 100%; padding: 10px; background: #B68B4B; color: #281F1C; border: none; border-radius: 12px; font-weight: bold; font-size: 12px; cursor: pointer;">Limpar Cache e Recarregar</button>' +
+            '</div>';
+        }
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

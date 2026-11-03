@@ -2,7 +2,7 @@ import React from 'react';
 import { Menu, Plus, RefreshCw, ExternalLink, Calendar, Cross, ShieldCheck } from 'lucide-react';
 import { Campaign, GoogleSheetsConfig } from '../../types';
 import { useAuth } from '../../context/AuthContext';
-import { NavItemKey } from './Sidebar';
+import type { NavItemKey } from './Sidebar';
 
 interface HeaderProps {
   currentView: NavItemKey;
