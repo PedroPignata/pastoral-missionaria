@@ -1087,6 +1087,28 @@ platformRouter.get('/members/birthdays', authenticateToken, (req: AuthenticatedR
   });
 });
 
+// GET /api/platform/members/:id (Buscar Missionário Único com Habilitações Atualizadas)
+platformRouter.get('/members/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const member = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!member) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  const qualifications = JSON.parse(member.qualifications_json || '[]');
+  const skills = JSON.parse(member.skills_json || '[]');
+  const availability = JSON.parse(member.availability_json || '{}');
+  const welcome_checklist = JSON.parse(member.welcome_checklist_json || '{}');
+
+  return res.json({
+    ...member,
+    qualifications,
+    skills,
+    availability,
+    welcome_checklist,
+  });
+});
+
 // POST /api/platform/members (Cadastrar Novo Missionário)
 platformRouter.post('/members', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const {
@@ -1155,6 +1177,15 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
 
   const now = new Date().toISOString();
 
+  // Preservação segura de habilitações: se qualifications não for enviado (undefined), preserva o valor atual
+  const finalQualificationsJson = Array.isArray(qualifications)
+    ? JSON.stringify(qualifications)
+    : existing.qualifications_json;
+
+  const finalSkillsJson = Array.isArray(skills)
+    ? JSON.stringify(skills)
+    : existing.skills_json;
+
   db.prepare(`
     UPDATE pastoral_members
     SET name = COALESCE(?, name),
@@ -1164,8 +1195,8 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
         pastoral_role = COALESCE(?, pastoral_role),
         status = COALESCE(?, status),
         joined_at = COALESCE(?, joined_at),
-        qualifications_json = COALESCE(?, qualifications_json),
-        skills_json = COALESCE(?, skills_json),
+        qualifications_json = ?,
+        skills_json = ?,
         birth_day = ?,
         birth_month = ?,
         birth_year = ?,
@@ -1181,8 +1212,8 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
     pastoral_role || null,
     status || null,
     joined_at || null,
-    Array.isArray(qualifications) ? JSON.stringify(qualifications) : null,
-    Array.isArray(skills) ? JSON.stringify(skills) : null,
+    finalQualificationsJson,
+    finalSkillsJson,
     birth_day !== undefined ? (birth_day ? Number(birth_day) : null) : existing.birth_day,
     birth_month !== undefined ? (birth_month ? Number(birth_month) : null) : existing.birth_month,
     birth_year !== undefined ? (birth_year ? Number(birth_year) : null) : existing.birth_year,
@@ -1214,7 +1245,20 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_FULL', 'pastoral_member', ?, ?, ?)
   `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
 
-  return res.json({ message: 'Cadastro do missionário atualizado com sucesso!' });
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const parsedQuals = JSON.parse(updatedMember.qualifications_json || '[]');
+
+  return res.json({
+    success: true,
+    message: 'Cadastro do missionário atualizado com sucesso!',
+    memberId: id,
+    qualifications: parsedQuals,
+    member: {
+      ...updatedMember,
+      qualifications: parsedQuals,
+      skills: JSON.parse(updatedMember.skills_json || '[]'),
+    }
+  });
 });
 
 // PATCH /api/platform/members/:id/status (Ativação / Inativação / Arquivamento)
@@ -1284,6 +1328,14 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
 
   const now = new Date().toISOString();
 
+  const finalQualificationsJson = Array.isArray(qualifications)
+    ? JSON.stringify(qualifications)
+    : existing.qualifications_json;
+
+  const finalSkillsJson = Array.isArray(skills)
+    ? JSON.stringify(skills)
+    : existing.skills_json;
+
   db.prepare(`
     UPDATE pastoral_members
     SET name = COALESCE(?, name),
@@ -1293,8 +1345,8 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
         status = COALESCE(?, status),
         pastoral_role = COALESCE(?, pastoral_role),
         joined_at = COALESCE(?, joined_at),
-        qualifications_json = COALESCE(?, qualifications_json),
-        skills_json = COALESCE(?, skills_json),
+        qualifications_json = ?,
+        skills_json = ?,
         birth_day = COALESCE(?, birth_day),
         birth_month = COALESCE(?, birth_month),
         birth_year = COALESCE(?, birth_year),
@@ -1310,8 +1362,8 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
     status || null,
     pastoral_role || null,
     joined_at || null,
-    Array.isArray(qualifications) ? JSON.stringify(qualifications) : null,
-    Array.isArray(skills) ? JSON.stringify(skills) : null,
+    finalQualificationsJson,
+    finalSkillsJson,
     birth_day ? Number(birth_day) : null,
     birth_month ? Number(birth_month) : null,
     birth_year ? Number(birth_year) : null,
@@ -1344,12 +1396,16 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
   `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
 
   const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const parsedQuals = JSON.parse(updatedMember.qualifications_json || '[]');
 
   return res.json({
+    success: true,
     message: 'Cadastro institucional e habilitações do membro atualizados com sucesso.',
+    memberId: id,
+    qualifications: parsedQuals,
     member: {
       ...updatedMember,
-      qualifications: JSON.parse(updatedMember.qualifications_json || '[]'),
+      qualifications: parsedQuals,
       skills: JSON.parse(updatedMember.skills_json || '[]'),
     }
   });
@@ -1382,15 +1438,18 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
   `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ qualifications }), now);
 
   const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const parsedQualifications = JSON.parse(updatedMember.qualifications_json || '[]');
 
   return res.json({
     success: true,
-    message: `Habilitações de ${existing.display_name || existing.name} salvas com sucesso!`,
+    memberId: id,
+    qualifications: parsedQualifications, // Top-level
     member: {
       ...updatedMember,
-      qualifications: JSON.parse(updatedMember.qualifications_json || '[]'),
+      qualifications: parsedQualifications, // Inside member
       skills: JSON.parse(updatedMember.skills_json || '[]'),
-    }
+    },
+    message: `Habilitações de ${existing.display_name || existing.name} salvas com sucesso!`,
   });
 });
 

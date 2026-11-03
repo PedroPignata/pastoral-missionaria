@@ -2,6 +2,10 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
+  PastoralQualificationsEditor,
+  QUALIFICATIONS_OPTIONS,
+} from '../components/governance/PastoralQualificationsEditor';
+import {
   ShieldCheck,
   Users,
   UserCheck,
@@ -25,17 +29,6 @@ import {
   UserX,
   Sparkles,
 } from 'lucide-react';
-
-const QUALIFICATIONS_OPTIONS = [
-  'Intercessão',
-  'Pregação',
-  'Formação',
-  'Testemunho',
-  'Música',
-  'Condução de oração',
-  'Animação',
-  'Apoio',
-];
 
 const MODULES_OPTIONS = [
   { key: 'camisetas', label: 'Gestão de Camisetas' },
@@ -190,41 +183,58 @@ export const GovernancaSucessaoView: React.FC = () => {
   const [qualsModalMember, setQualsModalMember] = useState<any | null>(null);
   const [selectedQuals, setSelectedQuals] = useState<string[]>([]);
   const [isSavingQuals, setIsSavingQuals] = useState(false);
+  const [qualsModalError, setQualsModalError] = useState('');
+  const [isQualificationsDirty, setIsQualificationsDirty] = useState(false);
 
-  const handleOpenQualsModal = (member: any) => {
+  const handleOpenQualsModal = async (member: any) => {
+    setQualsModalError('');
     setQualsModalMember(member);
-    setSelectedQuals(member.qualifications ? [...member.qualifications] : []);
-  };
+    const initialQuals = Array.isArray(member.qualifications) ? [...member.qualifications] : [];
+    setSelectedQuals(initialQuals);
 
-  const handleToggleQualInModal = (qual: string) => {
-    setSelectedQuals((prev) =>
-      prev.includes(qual) ? prev.filter((q) => q !== qual) : [...prev, qual]
-    );
-  };
-
-  const handleSelectAllQuals = () => {
-    setSelectedQuals([...QUALIFICATIONS_OPTIONS]);
-  };
-
-  const handleClearAllQuals = () => {
-    setSelectedQuals([]);
+    // Consulta dados mais recentes diretamente do backend para garantir a fonte de verdade
+    try {
+      const fresh = await api.getPastoralMember(member.id);
+      if (fresh && Array.isArray(fresh.qualifications)) {
+        setSelectedQuals([...fresh.qualifications]);
+      }
+    } catch {
+      // Mantém fallback seguro
+    }
   };
 
   const handleSaveQualifications = async () => {
     if (!qualsModalMember) return;
     setIsSavingQuals(true);
+    setQualsModalError('');
     try {
       const res = await api.updateMemberQualifications(qualsModalMember.id, selectedQuals);
-      // Atualizar imediatamente no estado local para evitar recargas fora de ordem
+
+      // Extração robusta garantindo nunca receber undefined
+      const confirmed = Array.isArray(res.qualifications)
+        ? res.qualifications
+        : Array.isArray(res.member?.qualifications)
+        ? res.member.qualifications
+        : selectedQuals;
+
+      const safeConfirmed = Array.isArray(confirmed) ? [...confirmed] : [...selectedQuals];
+
+      // Atualiza o estado local imediatamente com o array confirmado
       setPastoralMembers((prev) =>
         prev.map((m) =>
-          m.id === qualsModalMember.id ? { ...m, qualifications: res.qualifications } : m
+          m.id === qualsModalMember.id ? { ...m, qualifications: safeConfirmed } : m
         )
       );
-      showMessage(`Habilitações de ${qualsModalMember.display_name || qualsModalMember.name} salvas com sucesso!`);
+
+      showMessage(res.message || `Habilitações de ${qualsModalMember.display_name || qualsModalMember.name} salvas com sucesso!`);
       setQualsModalMember(null);
+
+      // Revalidação assíncrona em segundo plano
+      loadGovernance();
     } catch (err: any) {
-      showMessage('Erro ao salvar habilitações: ' + (err.message || 'Tente novamente'), true);
+      const msg = err.message || 'Falha ao salvar habilitações. Tente novamente.';
+      setQualsModalError(msg);
+      showMessage('Erro ao salvar habilitações: ' + msg, true);
     } finally {
       setIsSavingQuals(false);
     }
@@ -244,10 +254,11 @@ export const GovernancaSucessaoView: React.FC = () => {
     setFormBirthdayVisibility('members');
     setFormQualifications([]);
     setFormNotes('');
+    setIsQualificationsDirty(false);
     setIsNewMemberModalOpen(true);
   };
 
-  const handleOpenEditMemberModal = (member: any) => {
+  const handleOpenEditMemberModal = async (member: any) => {
     setEditingMember(member);
     setFormName(member.name || '');
     setFormDisplayName(member.display_name || member.name || '');
@@ -260,14 +271,30 @@ export const GovernancaSucessaoView: React.FC = () => {
     setFormBirthMonth(member.birth_month ?? '');
     setFormBirthYear(member.birth_year ?? '');
     setFormBirthdayVisibility(member.birthday_visibility || 'members');
-    setFormQualifications(member.qualifications || []);
+    setFormQualifications(Array.isArray(member.qualifications) ? [...member.qualifications] : []);
     setFormNotes(member.notes || '');
-  };
+    setIsQualificationsDirty(false);
 
-  const handleToggleFormQualification = (qual: string) => {
-    setFormQualifications((prev) =>
-      prev.includes(qual) ? prev.filter((q) => q !== qual) : [...prev, qual]
-    );
+    // Busca o registro mais recente do backend para garantir que não subscreva com dados defasados
+    try {
+      const fresh = await api.getPastoralMember(member.id);
+      if (fresh) {
+        setFormName(fresh.name || '');
+        setFormDisplayName(fresh.display_name || fresh.name || '');
+        setFormEmail(fresh.email || '');
+        setFormPhone(fresh.phone || '');
+        setFormPastoralRole(fresh.pastoral_role || 'membro');
+        setFormStatus(fresh.status || 'ativo');
+        setFormJoinedAt(fresh.joined_at || '');
+        setFormBirthDay(fresh.birth_day ?? '');
+        setFormBirthMonth(fresh.birth_month ?? '');
+        setFormBirthYear(fresh.birth_year ?? '');
+        setFormBirthdayVisibility(fresh.birthday_visibility || 'members');
+        setFormQualifications(Array.isArray(fresh.qualifications) ? [...fresh.qualifications] : []);
+        setFormNotes(fresh.notes || '');
+        setIsQualificationsDirty(false);
+      }
+    } catch {}
   };
 
   const handleSaveNewMember = async (e: React.FormEvent) => {
@@ -305,7 +332,7 @@ export const GovernancaSucessaoView: React.FC = () => {
     if (!editingMember || !formName.trim()) return;
     setIsSubmittingMember(true);
     try {
-      await api.updatePastoralMember(editingMember.id, {
+      const payload: any = {
         name: formName.trim(),
         display_name: formDisplayName.trim() || formName.trim().split(' ')[0],
         email: formEmail.trim().toLowerCase() || null,
@@ -317,12 +344,33 @@ export const GovernancaSucessaoView: React.FC = () => {
         birth_month: formBirthMonth ? Number(formBirthMonth) : null,
         birth_year: formBirthYear ? Number(formBirthYear) : null,
         birthday_visibility: formBirthdayVisibility,
-        qualifications: formQualifications,
         notes: formNotes.trim() || null,
-      });
+      };
+
+      // Inclui qualifications apenas se foram intencionalmente alteradas ou se já existem
+      if (isQualificationsDirty || formQualifications.length > 0) {
+        payload.qualifications = formQualifications;
+      }
+
+      const res = await api.updatePastoralMember(editingMember.id, payload);
+
+      const confirmedQuals = Array.isArray(res.qualifications)
+        ? res.qualifications
+        : Array.isArray(res.member?.qualifications)
+        ? res.member.qualifications
+        : formQualifications;
+
+      setPastoralMembers((prev) =>
+        prev.map((m) =>
+          m.id === editingMember.id
+            ? { ...m, ...res.member, qualifications: [...confirmedQuals] }
+            : m
+        )
+      );
+
       showMessage(`Dados de ${formName.trim()} atualizados com sucesso!`);
       setEditingMember(null);
-      loadGovernance();
+      await loadGovernance();
     } catch (err: any) {
       showMessage(err.message || 'Falha ao atualizar missionário', true);
     } finally {
@@ -1264,25 +1312,12 @@ export const GovernancaSucessaoView: React.FC = () => {
                 <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
                   Habilitações Pastorais Iniciais
                 </label>
-                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-zinc-50 border border-zinc-200">
-                  {QUALIFICATIONS_OPTIONS.map((qual) => {
-                    const isSelected = formQualifications.includes(qual);
-                    return (
-                      <button
-                        key={qual}
-                        type="button"
-                        onClick={() => handleToggleFormQualification(qual)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all ${
-                          isSelected
-                            ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
-                            : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-800'
-                        }`}
-                      >
-                        {qual}
-                      </button>
-                    );
-                  })}
-                </div>
+                <PastoralQualificationsEditor
+                  selectedQualifications={formQualifications}
+                  onChange={(quals) => setFormQualifications(quals)}
+                  disabled={isSubmittingMember}
+                  variant="chips"
+                />
               </div>
 
               <div>
@@ -1485,25 +1520,15 @@ export const GovernancaSucessaoView: React.FC = () => {
                 <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
                   Habilitações Pastorais
                 </label>
-                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-zinc-50 border border-zinc-200">
-                  {QUALIFICATIONS_OPTIONS.map((qual) => {
-                    const isSelected = formQualifications.includes(qual);
-                    return (
-                      <button
-                        key={qual}
-                        type="button"
-                        onClick={() => handleToggleFormQualification(qual)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all ${
-                          isSelected
-                            ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
-                            : 'bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-800'
-                        }`}
-                      >
-                        {qual}
-                      </button>
-                    );
-                  })}
-                </div>
+                <PastoralQualificationsEditor
+                  selectedQualifications={formQualifications}
+                  onChange={(quals) => {
+                    setFormQualifications(quals);
+                    setIsQualificationsDirty(true);
+                  }}
+                  disabled={isSubmittingMember}
+                  variant="chips"
+                />
               </div>
 
               <div>
@@ -1685,57 +1710,19 @@ export const GovernancaSucessaoView: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-zinc-500 font-medium">
-                  {selectedQuals.length} de {QUALIFICATIONS_OPTIONS.length} selecionadas
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSelectAllQuals}
-                    className="text-[11px] font-bold text-pastoral-vinho hover:underline"
-                  >
-                    Marcar Todas
-                  </button>
-                  <span className="text-zinc-300">|</span>
-                  <button
-                    type="button"
-                    onClick={handleClearAllQuals}
-                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
-                  >
-                    Desmarcar
-                  </button>
-                </div>
+            {qualsModalError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{qualsModalError}</span>
               </div>
+            )}
 
-              <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
-                {QUALIFICATIONS_OPTIONS.map((qual) => {
-                  const isSelected = selectedQuals.includes(qual);
-                  return (
-                    <button
-                      key={qual}
-                      type="button"
-                      onClick={() => handleToggleQualInModal(qual)}
-                      className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${
-                        isSelected
-                          ? 'bg-pastoral-cafe text-pastoral-creme border-pastoral-cafe shadow-xs font-bold'
-                          : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-100 font-medium'
-                      }`}
-                    >
-                      <span className="text-xs">{qual}</span>
-                      {isSelected ? (
-                        <div className="w-4 h-4 rounded-full bg-pastoral-dourado text-pastoral-profundo flex items-center justify-center">
-                          <Check className="w-3 h-3 stroke-[3]" />
-                        </div>
-                      ) : (
-                        <div className="w-4 h-4 rounded-full border border-zinc-300" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <PastoralQualificationsEditor
+              selectedQualifications={selectedQuals}
+              onChange={setSelectedQuals}
+              disabled={isSavingQuals}
+              variant="cards"
+            />
 
             <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
               <button

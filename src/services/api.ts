@@ -16,6 +16,21 @@ export class ApiError extends Error {
   }
 }
 
+export interface MemberQualificationsResponse {
+  success: boolean;
+  memberId: string;
+  qualifications: string[];
+  member: {
+    id: string;
+    name: string;
+    display_name: string;
+    qualifications: string[];
+    skills?: string[];
+    [key: string]: any;
+  };
+  message: string;
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = `Erro na requisição (HTTP ${res.status})`;
@@ -513,6 +528,11 @@ export const api = {
     return handleResponse<any[]>(res);
   },
 
+  async getPastoralMember(id: string) {
+    const res = await fetch(`${API_BASE}/platform/members/${id}`, { headers: getAuthHeader() });
+    return handleResponse<any>(res);
+  },
+
   async createPastoralMember(data: any) {
     const res = await fetch(`${API_BASE}/platform/members`, {
       method: 'POST',
@@ -633,7 +653,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ qualifications }),
     });
-    return handleResponse<{ success: boolean; memberId: string; qualifications: string[]; member: any; message: string }>(res);
+    return handleResponse<MemberQualificationsResponse>(res);
   },
 
   async assignCapability(data: { pastoral_member_id: string; role_label: string; module: string; actions: string[] }) {

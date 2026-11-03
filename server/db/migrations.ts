@@ -964,6 +964,54 @@ export function runMigrations() {
     console.log('✓ Migração 006_master_6_0_persistence_and_habilitations_lock aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 007: Contrato Unificado de Habilitações, Bloqueio Definitivo contra Sobrescrita Nula e Reconciliação Total
+  // ----------------------------------------------------
+  if (!applied.has('007_master_7_0_qualifications_contract_and_recovery')) {
+    const migrate007 = db.transaction(() => {
+      const all8Quals = JSON.stringify([
+        'Intercessão',
+        'Pregação',
+        'Formação',
+        'Testemunho',
+        'Música',
+        'Condução de oração',
+        'Animação',
+        'Apoio'
+      ]);
+
+      // 1. Garantir que Pedro (Coordenador) possua as 8 habilitações pastorais confirmadas
+      db.prepare(`
+        UPDATE pastoral_members
+        SET qualifications_json = ?, updated_at = datetime('now')
+        WHERE id = 'pmem_pedro' OR name LIKE 'Pedro%'
+      `).run(all8Quals);
+
+      // 2. Garantir que Fernanda (Coordenadora) possua as 8 habilitações pastorais confirmadas
+      db.prepare(`
+        UPDATE pastoral_members
+        SET qualifications_json = ?, updated_at = datetime('now')
+        WHERE id = 'pmem_fernanda' OR name LIKE 'Fernanda%'
+      `).run(all8Quals);
+
+      // 3. Garantir que Tiago possua as 8 habilitações pastorais confirmadas
+      db.prepare(`
+        UPDATE pastoral_members
+        SET qualifications_json = ?, updated_at = datetime('now')
+        WHERE id = 'pmem_mem_2a2e78c53bf9' OR name = 'Tiago' OR display_name = 'Tiago'
+      `).run(all8Quals);
+
+      // 4. Registrar migração 007
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('007_master_7_0_qualifications_contract_and_recovery', 'Contrato Unificado de Habilitações, Bloqueio Definitivo contra Sobrescrita Nula e Reconciliação Total de Pedro, Fernanda e Tiago', datetime('now'))
+      `).run();
+    });
+
+    migrate007();
+    console.log('✓ Migração 007_master_7_0_qualifications_contract_and_recovery aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
