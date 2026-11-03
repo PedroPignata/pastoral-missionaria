@@ -270,7 +270,8 @@ export const Calendario2027View: React.FC = () => {
   const handleToday = () => {
     setCurrentYear(todaySP.year);
     setCurrentMonth(todaySP.month);
-    setSelectedDateStr(todaySP.isoDate);
+    setSelectedDateStr(null);
+    setSelectedEvent(null);
   };
 
   const handleCreateEvent = async (e: React.FormEvent) => {

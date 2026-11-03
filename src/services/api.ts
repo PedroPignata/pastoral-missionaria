@@ -592,6 +592,23 @@ export const api = {
     return handleResponse<any>(res);
   },
 
+  async updateAnnouncement(id: string, data: { title?: string; content?: string; category?: string; pinned?: boolean; audience?: string }) {
+    const res = await fetch(`${API_BASE}/platform/announcements/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async deleteAnnouncement(id: string) {
+    const res = await fetch(`${API_BASE}/platform/announcements/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
   async getGovernanceData() {
     const res = await fetch(`${API_BASE}/platform/governance`, { headers: getAuthHeader() });
     return handleResponse<{
@@ -608,6 +625,15 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse<any>(res);
+  },
+
+  async updateMemberQualifications(memberId: string, qualifications: string[]) {
+    const res = await fetch(`${API_BASE}/platform/members/${memberId}/qualifications`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ qualifications }),
+    });
+    return handleResponse<{ success: boolean; memberId: string; qualifications: string[]; member: any; message: string }>(res);
   },
 
   async assignCapability(data: { pastoral_member_id: string; role_label: string; module: string; actions: string[] }) {

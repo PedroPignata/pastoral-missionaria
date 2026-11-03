@@ -194,22 +194,23 @@ platformRouter.get('/calendar', authenticateToken, (req: AuthenticatedRequest, r
       const hList = getHolidaysForYear(y);
       for (const h of hList) {
         if (month && typeof month === 'string' && h.date.slice(5, 7) !== month) continue;
+        const isReligious = h.type === 'religiosa';
         holidayEvents.push({
           id: h.id,
           external_stable_id: h.id,
-          title: `🏛️ ${h.name}`,
+          title: isReligious ? `🌹 ${h.name}` : `🏛️ ${h.name}`,
           description: `${h.type_label}: ${h.description}`,
           event_date: h.date,
           end_date: null,
           event_time: '00:00',
-          location: 'Brasília / Planaltina-DF',
+          location: isReligious ? 'Paróquia São Vicente de Paulo' : 'Brasília / Planaltina-DF',
           category: 'Feriados',
           status: 'Confirmado',
           visibility: 'publico',
-          responsibles: ['GDF / Brasil'],
+          responsibles: isReligious ? ['Igreja Católica'] : ['GDF / Brasil'],
           materials: [],
           notes: h.type_label,
-          source: 'Feriados Oficiais e Comemorativos',
+          source: isReligious ? 'Calendário Litúrgico da Igreja Católica' : 'Feriados Oficiais e Comemorativos',
           is_birthday: false,
           is_holiday: true,
           holiday_type: h.type,
@@ -973,6 +974,40 @@ platformRouter.post('/announcements', authenticateToken, requireRole(['admin', '
   return res.status(201).json({ id, message: 'Comunicado publicado com sucesso.' });
 });
 
+platformRouter.put('/announcements/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { title, content, category, audience, pinned } = req.body;
+  const existing = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Comunicado não encontrado.' });
+  }
+
+  const updatedTitle = title !== undefined ? title.trim() : existing.title;
+  const updatedContent = content !== undefined ? content.trim() : existing.content;
+  const updatedCategory = category !== undefined ? category : existing.category;
+  const updatedAudience = audience !== undefined ? audience : existing.audience;
+  const updatedPinned = pinned !== undefined ? (pinned ? 1 : 0) : existing.pinned;
+
+  db.prepare(`
+    UPDATE announcements
+    SET title = ?, content = ?, category = ?, audience = ?, pinned = ?
+    WHERE id = ?
+  `).run(updatedTitle, updatedContent, updatedCategory, updatedAudience, updatedPinned, id);
+
+  return res.json({ message: 'Comunicado atualizado com sucesso!' });
+});
+
+platformRouter.delete('/announcements/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const existing = db.prepare('SELECT id FROM announcements WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Comunicado não encontrado.' });
+  }
+
+  db.prepare('DELETE FROM announcements WHERE id = ?').run(id);
+  return res.json({ message: 'Comunicado removido com sucesso.' });
+});
+
 // 7. GOVERNANCE, PASTORAL MEMBERS, DELEGATIONS & SUCCESSION (/api/platform/governance)
 // GET /api/platform/members (Listagem e Busca com Filtros)
 platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -1308,7 +1343,55 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_GOVERNANCE', 'pastoral_member', ?, ?, ?)
   `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
 
-  return res.json({ message: 'Cadastro institucional e habilitações do membro atualizados com sucesso.' });
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+
+  return res.json({
+    message: 'Cadastro institucional e habilitações do membro atualizados com sucesso.',
+    member: {
+      ...updatedMember,
+      qualifications: JSON.parse(updatedMember.qualifications_json || '[]'),
+      skills: JSON.parse(updatedMember.skills_json || '[]'),
+    }
+  });
+});
+
+// PUT /api/platform/members/:id/qualifications (Atualização Atômica e Confiável de Habilitações Pastorais)
+platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { qualifications } = req.body;
+
+  if (!Array.isArray(qualifications)) {
+    return res.status(400).json({ error: 'O campo qualifications deve ser um array de strings.' });
+  }
+
+  const existing = db.prepare('SELECT id, name, display_name FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE pastoral_members
+    SET qualifications_json = ?, updated_at = ?
+    WHERE id = ?
+  `).run(JSON.stringify(qualifications), now, id);
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_QUALIFICATIONS', 'pastoral_member', ?, ?, ?)
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ qualifications }), now);
+
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+
+  return res.json({
+    success: true,
+    message: `Habilitações de ${existing.display_name || existing.name} salvas com sucesso!`,
+    member: {
+      ...updatedMember,
+      qualifications: JSON.parse(updatedMember.qualifications_json || '[]'),
+      skills: JSON.parse(updatedMember.skills_json || '[]'),
+    }
+  });
 });
 
 platformRouter.post('/governance/capabilities', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {

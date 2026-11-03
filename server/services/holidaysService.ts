@@ -11,7 +11,7 @@ export interface HolidayItem {
   id: string;
   name: string;
   date: string; // YYYY-MM-DD
-  type: 'nacional' | 'distrital' | 'facultativo' | 'comemorativa';
+  type: 'nacional' | 'distrital' | 'facultativo' | 'comemorativa' | 'religiosa';
   type_label: string;
   description: string;
   is_holiday: true;
@@ -65,6 +65,17 @@ export function getHolidaysForYear(year: number): HolidayItem[] {
     type: 'nacional',
     type_label: 'Feriado Nacional',
     description: 'Início do ano civil e dia da fraternidade universal.',
+    is_holiday: true,
+  });
+
+  // Celebração Litúrgica Católica de 1º de Janeiro (Solenidade Mariana)
+  holidays.push({
+    id: `hol_religiosa_santa_maria_mae_de_deus_${year}`,
+    name: 'Santa Maria, Mãe de Deus',
+    date: formatDate(year, 1, 1),
+    type: 'religiosa',
+    type_label: 'Solenidade Litúrgica',
+    description: 'No primeiro dia do ano civil, a Santa Igreja celebra a Solenidade de Santa Maria, Mãe de Deus (com viva devoção a Nossa Senhora Mãe Rainha), consagrando o novo ano à proteção maternal e à intercessão da Virgem Santíssima.',
     is_holiday: true,
   });
 
@@ -258,3 +269,4 @@ export function getHolidaysForYear(year: number): HolidayItem[] {
 
   return holidays.sort((a, b) => a.date.localeCompare(b.date));
 }
+

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { db } from './database.js';
 
 export const CALENDAR_2027_SEED = [
@@ -594,18 +595,19 @@ export function runMigrations() {
         db.exec("ALTER TABLE lab_draws ADD COLUMN groups_json TEXT NOT NULL DEFAULT '[]';");
       }
 
-      // 4. Pre-authorize Fernanda and Pedro as coordinators in users
+      // 4. Pre-authorize Fernanda and Pedro as coordinators in users with default credentials
+      const defaultCoordHash = bcrypt.hashSync('pastoral@2026', 10);
       db.prepare(`
-        INSERT INTO users (id, name, email, role, created_at, updated_at)
-        VALUES ('user_fernanda_coordinator', 'Fernanda Souto', 'fernandasouto7826@gmail.com', 'coordenador', datetime('now'), datetime('now'))
-        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
-      `).run();
+        INSERT INTO users (id, name, email, password_hash, role, created_at, updated_at)
+        VALUES ('user_fernanda_coordinator', 'Fernanda Souto', 'fernandasouto7826@gmail.com', ?, 'coordenador', datetime('now'), datetime('now'))
+        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', password_hash = COALESCE(users.password_hash, excluded.password_hash), updated_at = datetime('now')
+      `).run(defaultCoordHash);
 
       db.prepare(`
-        INSERT INTO users (id, name, email, role, created_at, updated_at)
-        VALUES ('user_pedro_coordinator', 'Pedro Rafael', 'pedropignata2@gmail.com', 'coordenador', datetime('now'), datetime('now'))
-        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', updated_at = datetime('now')
-      `).run();
+        INSERT INTO users (id, name, email, password_hash, role, created_at, updated_at)
+        VALUES ('user_pedro_coordinator', 'Pedro Rafael', 'pedropignata2@gmail.com', ?, 'coordenador', datetime('now'), datetime('now'))
+        ON CONFLICT(email) DO UPDATE SET role = 'coordenador', password_hash = COALESCE(users.password_hash, excluded.password_hash), updated_at = datetime('now')
+      `).run(defaultCoordHash);
 
       // Ensure pastoral_members records have coordinator emails
       db.prepare("UPDATE pastoral_members SET email = 'pedropignata2@gmail.com' WHERE id = 'pmem_pedro'").run();
@@ -902,6 +904,66 @@ export function runMigrations() {
     console.log('✓ Migração 005_master_5_0_data_protection_and_calendar_evolution aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 006: Persistência Definitiva de Habilitações, Bloqueio de Sobrescrita, Habilitações de Fernanda e Tiago, e Novo Mural
+  // ----------------------------------------------------
+  if (!applied.has('006_master_6_0_persistence_and_habilitations_lock')) {
+    const migrate006 = db.transaction(() => {
+      const all8Quals = JSON.stringify([
+        'Intercessão',
+        'Pregação',
+        'Formação',
+        'Testemunho',
+        'Música',
+        'Condução de oração',
+        'Animação',
+        'Apoio'
+      ]);
+
+      // 1. Confirmar as 8 habilitações de Fernanda (Coordenadora)
+      db.prepare(`
+        UPDATE pastoral_members
+        SET qualifications_json = ?, updated_at = datetime('now')
+        WHERE id = 'pmem_fernanda' OR name LIKE 'Fernanda%'
+      `).run(all8Quals);
+
+      // 2. Confirmar as 8 habilitações de Tiago
+      db.prepare(`
+        UPDATE pastoral_members
+        SET qualifications_json = ?, updated_at = datetime('now')
+        WHERE id = 'pmem_mem_2a2e78c53bf9' OR name = 'Tiago' OR display_name = 'Tiago'
+      `).run(all8Quals);
+
+      // 3. Atualizar o comunicado institucional do mural de avisos (Seção 8.2)
+      const novoConteudoMural =
+        'Paz e bem, irmãos!\n\nNossa plataforma foi criada para facilitar a organização e a caminhada da Pastoral Missionária. Aqui podemos acompanhar o calendário da Pastoral, consultar missões e envios, organizar os laboratórios de pregação, acessar comunicados, participar da comunidade missionária e acompanhar os pedidos das camisetas.\n\nQue este espaço nos ajude a viver nossa missão com mais unidade, organização e fraternidade.\n\n"Tenha Jesus Cristo em seu coração, e todas as cruzes do mundo parecerão rosas!" — São Padre Pio.';
+
+      db.prepare(`
+        UPDATE announcements
+        SET title = 'Bem-vindos à Plataforma da Pastoral Missionária!',
+            content = ?
+        WHERE id = 'ann-boas-vindas-ecossistema'
+      `).run(novoConteudoMural);
+
+      // 4. Garantir que os coordenadores Pedro e Fernanda possuam senha padrão segura caso não tenham senha definida
+      const defaultCoordHash = bcrypt.hashSync('pastoral@2026', 10);
+      db.prepare(`
+        UPDATE users
+        SET password_hash = COALESCE(password_hash, ?), updated_at = datetime('now')
+        WHERE email IN ('pedropignata2@gmail.com', 'fernandasouto7826@gmail.com')
+      `).run(defaultCoordHash);
+
+      // 5. Registrar migração 006
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('006_master_6_0_persistence_and_habilitations_lock', 'Persistência Definitiva de Habilitações, Preservação de Fernanda e Tiago com 8 Funções, e Atualização do Mural Institucional', datetime('now'))
+      `).run();
+    });
+
+    migrate006();
+    console.log('✓ Migração 006_master_6_0_persistence_and_habilitations_lock aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
@@ -952,7 +1014,16 @@ export function seedEcosystemData() {
       'Fernanda (Coordenadora)',
       'Fernanda',
       'coordenador',
-      JSON.stringify(['Intercessão', 'Pregação', 'Formação', 'Condução de oração', 'Apoio']),
+      JSON.stringify([
+        'Intercessão',
+        'Pregação',
+        'Formação',
+        'Testemunho',
+        'Música',
+        'Condução de oração',
+        'Animação',
+        'Apoio'
+      ]),
       JSON.stringify(['Coordenação', 'Pregação', 'Formação', 'Acolhimento']),
       now,
       now
@@ -1040,8 +1111,8 @@ export function seedEcosystemData() {
       `);
       insertAnnouncement.run(
         'ann-boas-vindas-ecossistema',
-        'Bem-vindos ao Ecossistema Digital da Pastoral Missionária!',
-        'Paz e bem, irmãos! Nosso sistema evoluiu: além do acompanhamento completo dos pedidos das camisetas oficiais, agora contamos com o Calendário Oficial 2027, a Central de Envios Missionários, os Laboratórios de Pregação com os 19 temas e ficha de avaliação oficial, e os modelos de encontros da nossa pasta. "Tenha Jesus Cristo em seu coração, e todas as cruzes do mundo parecerão rosas!" — São Padre Pio.',
+        'Bem-vindos à Plataforma da Pastoral Missionária!',
+        'Paz e bem, irmãos!\n\nNossa plataforma foi criada para facilitar a organização e a caminhada da Pastoral Missionária. Aqui podemos acompanhar o calendário da Pastoral, consultar missões e envios, organizar os laboratórios de pregação, acessar comunicados, participar da comunidade missionária e acompanhar os pedidos das camisetas.\n\nQue este espaço nos ajude a viver nossa missão com mais unidade, organização e fraternidade.\n\n"Tenha Jesus Cristo em seu coração, e todas as cruzes do mundo parecerão rosas!" — São Padre Pio.',
         'Institucional',
         1,
         'Coordenação (Pedro e Fernanda)',

@@ -612,3 +612,34 @@ authRouter.delete(
     return res.json({ message: 'Usuário removido com sucesso.' });
   }
 );
+
+// POST /api/auth/profile/password (Atualizar própria senha por usuário autenticado)
+authRouter.post('/profile/password', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+    return res.status(400).json({ error: 'A nova senha deve ter no mínimo 6 caracteres.' });
+  }
+
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: 'Sessão inválida.' });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
+  if (!user) {
+    return res.status(404).json({ error: 'Usuário não encontrado.' });
+  }
+
+  if (user.password_hash && currentPassword) {
+    const isCurrentValid = bcrypt.compareSync(currentPassword, user.password_hash);
+    if (!isCurrentValid) {
+      return res.status(400).json({ error: 'Senha atual incorreta.' });
+    }
+  }
+
+  const newHash = bcrypt.hashSync(newPassword.trim(), 10);
+  const now = new Date().toISOString();
+  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(newHash, now, userId);
+
+  return res.json({ message: 'Senha atualizada com sucesso!' });
+});

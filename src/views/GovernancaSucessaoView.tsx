@@ -186,17 +186,48 @@ export const GovernancaSucessaoView: React.FC = () => {
     }
   };
 
-  const handleToggleQualification = async (member: any, qual: string) => {
-    if (!canManage) return;
-    const current: string[] = member.qualifications || [];
-    const updated = current.includes(qual)
-      ? current.filter((q) => q !== qual)
-      : [...current, qual];
-    await api.updatePastoralMemberGovernance(member.id, {
-      qualifications: updated,
-    });
-    showMessage(`Habilitações de ${member.display_name} atualizadas!`);
-    loadGovernance();
+  // Modal de Edição Exclusiva de Habilitações Pastorais (Seção 5.3)
+  const [qualsModalMember, setQualsModalMember] = useState<any | null>(null);
+  const [selectedQuals, setSelectedQuals] = useState<string[]>([]);
+  const [isSavingQuals, setIsSavingQuals] = useState(false);
+
+  const handleOpenQualsModal = (member: any) => {
+    setQualsModalMember(member);
+    setSelectedQuals(member.qualifications ? [...member.qualifications] : []);
+  };
+
+  const handleToggleQualInModal = (qual: string) => {
+    setSelectedQuals((prev) =>
+      prev.includes(qual) ? prev.filter((q) => q !== qual) : [...prev, qual]
+    );
+  };
+
+  const handleSelectAllQuals = () => {
+    setSelectedQuals([...QUALIFICATIONS_OPTIONS]);
+  };
+
+  const handleClearAllQuals = () => {
+    setSelectedQuals([]);
+  };
+
+  const handleSaveQualifications = async () => {
+    if (!qualsModalMember) return;
+    setIsSavingQuals(true);
+    try {
+      const res = await api.updateMemberQualifications(qualsModalMember.id, selectedQuals);
+      // Atualizar imediatamente no estado local para evitar recargas fora de ordem
+      setPastoralMembers((prev) =>
+        prev.map((m) =>
+          m.id === qualsModalMember.id ? { ...m, qualifications: res.qualifications } : m
+        )
+      );
+      showMessage(`Habilitações de ${qualsModalMember.display_name || qualsModalMember.name} salvas com sucesso!`);
+      setQualsModalMember(null);
+    } catch (err: any) {
+      showMessage('Erro ao salvar habilitações: ' + (err.message || 'Tente novamente'), true);
+    } finally {
+      setIsSavingQuals(false);
+    }
   };
 
   const handleOpenNewMemberModal = () => {
@@ -1018,11 +1049,23 @@ export const GovernancaSucessaoView: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Habilitações Pastorais Interativas */}
-                  <div className="space-y-1 pt-1 border-t border-zinc-100">
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase block">
-                      Habilitações Pastorais:
-                    </span>
+                  {/* Habilitações Pastorais */}
+                  <div className="space-y-1 pt-1.5 border-t border-zinc-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase block">
+                        Habilitações Pastorais:
+                      </span>
+                      {canManage && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQualsModal(m)}
+                          className="text-[10px] font-bold text-pastoral-dourado hover:text-pastoral-cafe hover:underline flex items-center gap-1 transition-colors"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Editar Funções</span>
+                        </button>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-1">
                       {QUALIFICATIONS_OPTIONS.map((qual) => {
                         const hasQual = (m.qualifications || []).includes(qual);
@@ -1030,14 +1073,13 @@ export const GovernancaSucessaoView: React.FC = () => {
                           <button
                             key={qual}
                             type="button"
-                            disabled={!canManage}
-                            onClick={() => handleToggleQualification(m, qual)}
+                            onClick={() => (canManage ? handleOpenQualsModal(m) : undefined)}
                             className={`text-[9px] px-2 py-0.5 rounded-md font-semibold transition-all ${
                               hasQual
-                                ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs'
+                                ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs font-bold'
                                 : 'bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-700'
                             }`}
-                            title={canManage ? `Clique para ${hasQual ? 'remover' : 'adicionar'} habilitação` : qual}
+                            title={canManage ? 'Clique para editar habilitações' : qual}
                           >
                             {qual}
                           </button>
@@ -1617,6 +1659,106 @@ export const GovernancaSucessaoView: React.FC = () => {
                 className="px-4 py-1.5 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Edição Dedicada de Habilitações Pastorais (Seção 5.3) */}
+      {qualsModalMember && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div>
+                <span className="text-[10px] font-bold text-pastoral-dourado uppercase tracking-wider block">
+                  Ministérios e Funções Pastorais
+                </span>
+                <h3 className="font-serif font-bold text-base text-pastoral-cafe">
+                  {qualsModalMember.display_name || qualsModalMember.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setQualsModalMember(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500 font-medium">
+                  {selectedQuals.length} de {QUALIFICATIONS_OPTIONS.length} selecionadas
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllQuals}
+                    className="text-[11px] font-bold text-pastoral-vinho hover:underline"
+                  >
+                    Marcar Todas
+                  </button>
+                  <span className="text-zinc-300">|</span>
+                  <button
+                    type="button"
+                    onClick={handleClearAllQuals}
+                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
+                  >
+                    Desmarcar
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                {QUALIFICATIONS_OPTIONS.map((qual) => {
+                  const isSelected = selectedQuals.includes(qual);
+                  return (
+                    <button
+                      key={qual}
+                      type="button"
+                      onClick={() => handleToggleQualInModal(qual)}
+                      className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                        isSelected
+                          ? 'bg-pastoral-cafe text-pastoral-creme border-pastoral-cafe shadow-xs font-bold'
+                          : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-100 font-medium'
+                      }`}
+                    >
+                      <span className="text-xs">{qual}</span>
+                      {isSelected ? (
+                        <div className="w-4 h-4 rounded-full bg-pastoral-dourado text-pastoral-profundo flex items-center justify-center">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border border-zinc-300" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setQualsModalMember(null)}
+                className="px-4 py-2 rounded-xl text-xs text-zinc-600 hover:bg-zinc-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingQuals}
+                onClick={handleSaveQualifications}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-pastoral-profundo bg-pastoral-dourado hover:brightness-105 shadow-gold flex items-center gap-1.5 transition-all disabled:opacity-50"
+              >
+                {isSavingQuals ? (
+                  <span>Salvando...</span>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Salvar Habilitações</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
