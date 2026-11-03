@@ -130,6 +130,13 @@ export const App: React.FC = () => {
     }
   }, [user, loadAllData]);
 
+  // Check if hash is #portal on load
+  useEffect(() => {
+    if (window.location.hash === '#portal' || window.location.search.includes('portal=true')) {
+      setCurrentView('portal_publico');
+    }
+  }, []);
+
   // Sync now action from Header
   const handleSyncNow = async () => {
     setIsSyncing(true);
@@ -200,13 +207,6 @@ export const App: React.FC = () => {
       </div>
     );
   }
-
-  // Check if hash is #portal on load
-  useEffect(() => {
-    if (window.location.hash === '#portal' || window.location.search.includes('portal=true')) {
-      setCurrentView('portal_publico');
-    }
-  }, []);
 
   // Public Institutional Portal viewable by anyone (logged in or visitor)
   if (currentView === 'portal_publico') {
