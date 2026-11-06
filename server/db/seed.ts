@@ -218,7 +218,7 @@ export function seedDatabase() {
           0, // R$ 0,00 pago
           totalAmount, // R$ 45,00 pendente
           'pendente', // Status financeiro
-          'aguardando_confirmacao',
+          'em_producao', // Etapa real da confecção confirmada pela coordenação
           'nao_entregue', // Status entrega
           'Importado do cadastro inicial oficial',
           now,

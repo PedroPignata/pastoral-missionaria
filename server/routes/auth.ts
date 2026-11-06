@@ -248,33 +248,16 @@ authRouter.post('/google', async (req: Request, res: Response) => {
     VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
   `).run(userId, name, email, assignedRole, google_id, picture_url, now, now);
 
-  // Vincular em pastoral_members se já houver registro com mesmo nome/email
+  // Vincular em pastoral_members APENAS se já houver registro com o mesmo e-mail institucional verificado
   const matchingPastoralMember = db.prepare(`
     SELECT * FROM pastoral_members 
-    WHERE (email = ? COLLATE NOCASE OR name = ? COLLATE NOCASE) AND user_id IS NULL
+    WHERE email = ? COLLATE NOCASE AND user_id IS NULL
     LIMIT 1
-  `).get(email, name) as any;
+  `).get(email) as any;
 
   if (matchingPastoralMember) {
-    db.prepare('UPDATE pastoral_members SET user_id = ?, email = COALESCE(email, ?), photo_url = COALESCE(photo_url, ?), updated_at = ? WHERE id = ?')
-      .run(userId, email, picture_url, now, matchingPastoralMember.id);
-  } else {
-    const pmemId = `pmem_${crypto.randomBytes(6).toString('hex')}`;
-    db.prepare(`
-      INSERT INTO pastoral_members (id, user_id, name, display_name, email, photo_url, status, pastoral_role, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      pmemId,
-      userId,
-      name,
-      name.split(' ')[0],
-      email,
-      picture_url,
-      assignedRole === 'pendente' ? 'pendente' : 'ativo',
-      assignedRole === 'coordenador' ? 'coordenador' : 'membro',
-      now,
-      now
-    );
+    db.prepare('UPDATE pastoral_members SET user_id = ?, photo_url = COALESCE(photo_url, ?), updated_at = ? WHERE id = ?')
+      .run(userId, picture_url, now, matchingPastoralMember.id);
   }
 
   const token = jwt.sign(
@@ -292,7 +275,7 @@ authRouter.post('/google', async (req: Request, res: Response) => {
       role: assignedRole,
       picture_url,
     },
-    needs_onboarding: assignedRole === 'pendente',
+    needs_onboarding: assignedRole === 'pendente' || !matchingPastoralMember,
   });
 });
 
@@ -302,76 +285,87 @@ authRouter.get('/me', authenticateToken, (req: AuthenticatedRequest, res: Respon
   if (!user) {
     return res.status(404).json({ error: 'Usuário não encontrado.' });
   }
-  return res.json(user);
+  const pm = db.prepare('SELECT id, buyer_member_id, name, display_name, pastoral_role FROM pastoral_members WHERE user_id = ?').get(user.id) as any;
+  return res.json({
+    ...user,
+    pastoral_member_id: pm?.id || null,
+    buyer_member_id: pm?.buyer_member_id || null,
+  });
 });
 
-// GET /api/auth/unclaimed-members (Membros/compradores disponíveis para vínculo de onboarding)
+// GET /api/auth/unclaimed-members (Missionários institucionais disponíveis para solicitação de vínculo)
 authRouter.get('/unclaimed-members', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
-  const membersList = db.prepare(`
-    SELECT m.id, m.name, m.display_name,
-      (SELECT COUNT(*) FROM orders o WHERE o.member_id = m.id) as orders_count,
-      (SELECT pm.id FROM pastoral_members pm WHERE pm.buyer_member_id = m.id AND pm.user_id IS NOT NULL) as claimed_by_user
-    FROM members m
-    WHERE m.active = 1
-    ORDER BY m.name ASC
+  const pastoralList = db.prepare(`
+    SELECT pm.id, pm.buyer_member_id, pm.name, pm.display_name, pm.pastoral_role,
+      (SELECT COUNT(*) FROM orders o WHERE o.pastoral_member_id = pm.id OR (pm.buyer_member_id IS NOT NULL AND o.member_id = pm.buyer_member_id)) as orders_count
+    FROM pastoral_members pm
+    WHERE pm.status = 'ativo' AND pm.user_id IS NULL
+    ORDER BY pm.name ASC
   `).all() as any[];
 
-  const unclaimed = membersList.filter((m) => !m.claimed_by_user).map((m) => ({
-    id: m.id,
-    name: m.name,
-    display_name: m.display_name,
-    orders_count: m.orders_count,
+  const unclaimed = pastoralList.map((pm) => ({
+    id: pm.buyer_member_id || pm.id,
+    pastoral_member_id: pm.id,
+    buyer_member_id: pm.buyer_member_id,
+    name: pm.name,
+    display_name: pm.display_name,
+    orders_count: pm.orders_count || 0,
   }));
 
   return res.json(unclaimed);
 });
 
-// POST /api/auth/claim-member (Solicitação de vínculo de missionário / comprador)
+// POST /api/auth/claim-member (Solicitação controlada de vínculo de missionário / comprador)
 authRouter.post('/claim-member', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { claimed_member_id, notes } = req.body;
   if (!claimed_member_id) {
-    return res.status(400).json({ error: 'ID do comprador ou membro não informado.' });
+    return res.status(400).json({ error: 'ID do missionário ou comprador não informado.' });
   }
 
   const userId = req.user!.id;
+  const userEmail = (req.user!.email || '').toLowerCase().trim();
   const now = new Date().toISOString();
 
-  const member = db.prepare('SELECT * FROM members WHERE id = ?').get(claimed_member_id) as any;
-  if (!member) {
-    return res.status(404).json({ error: 'Membro ou comprador não localizado.' });
+  // Localiza tanto por pastoral_members.id quanto por members.id (buyer_member_id)
+  let pm = db.prepare('SELECT * FROM pastoral_members WHERE id = ? OR buyer_member_id = ?').get(claimed_member_id, claimed_member_id) as any;
+  let member = db.prepare('SELECT * FROM members WHERE id = ?').get(claimed_member_id) as any;
+  if (!member && pm?.buyer_member_id) {
+    member = db.prepare('SELECT * FROM members WHERE id = ?').get(pm.buyer_member_id) as any;
   }
 
-  // Verifica se há correspondência de nome exato/parcial (auto-aprovação assistida)
-  const userNameNorm = req.user!.name.toLowerCase().trim();
-  const memberNameNorm = member.name.toLowerCase().trim();
-  const isAutoApprovable =
-    userNameNorm === memberNameNorm ||
-    memberNameNorm.includes(userNameNorm) ||
-    userNameNorm.includes(memberNameNorm);
+  if (!pm && !member) {
+    return res.status(404).json({ error: 'Missionário ou comprador não localizado.' });
+  }
+
+  // Segurança: auto-aprovação somente se o e-mail institucional já cadastrado na Governança coincidir exatamente
+  const pmEmail = (pm?.email || '').toLowerCase().trim();
+  const isVerifiedEmailMatch = Boolean(pmEmail && userEmail && pmEmail === userEmail);
 
   const requestId = crypto.randomUUID();
-  const status = isAutoApprovable ? 'aprovado' : 'pendente';
+  const status = isVerifiedEmailMatch ? 'aprovado' : 'pendente';
 
   db.prepare(`
-    INSERT INTO member_link_requests (id, user_id, claimed_member_id, status, user_notes, reviewed_by, reviewed_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO member_link_requests (
+      id, user_id, claimed_member_id, claimed_pastoral_member_id, status, user_notes, reviewed_by, reviewed_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     requestId,
     userId,
-    claimed_member_id,
+    member?.id || null,
+    pm?.id || null,
     status,
     notes || null,
-    isAutoApprovable ? 'Sistema (Correspondência de Nome)' : null,
-    isAutoApprovable ? now : null,
+    isVerifiedEmailMatch ? 'Sistema (E-mail Institucional Verificado)' : null,
+    isVerifiedEmailMatch ? now : null,
     now
   );
 
-  if (isAutoApprovable) {
+  if (isVerifiedEmailMatch && pm) {
     db.prepare(`
       UPDATE pastoral_members
-      SET buyer_member_id = ?, user_id = ?, status = 'ativo', updated_at = ?
-      WHERE buyer_member_id = ? OR name = ? COLLATE NOCASE
-    `).run(claimed_member_id, userId, now, claimed_member_id, member.name);
+      SET user_id = ?, status = 'ativo', updated_at = ?
+      WHERE id = ?
+    `).run(userId, now, pm.id);
 
     if (req.user!.role === 'pendente') {
       db.prepare("UPDATE users SET role = 'membro', updated_at = ? WHERE id = ?").run(now, userId);
@@ -379,11 +373,11 @@ authRouter.post('/claim-member', authenticateToken, (req: AuthenticatedRequest, 
   }
 
   return res.json({
-    message: isAutoApprovable
-      ? 'Vínculo confirmado com sucesso! Bem-vindo(a) à Pastoral Missionária.'
-      : 'Sua solicitação de vínculo foi registrada e enviada à coordenação (Pedro e Fernanda).',
+    message: isVerifiedEmailMatch
+      ? 'Vínculo institucional confirmado pelo seu e-mail cadastrado! Bem-vindo(a) à Pastoral Missionária.'
+      : 'Sua solicitação de vínculo foi registrada e enviada para confirmação da coordenação (Pedro e Fernanda).',
     status,
-    auto_approved: isAutoApprovable,
+    auto_approved: isVerifiedEmailMatch,
   });
 });
 
@@ -401,12 +395,13 @@ authRouter.get(
     `).all();
 
     const pendingRequests = db.prepare(`
-      SELECT r.id, r.user_id, r.claimed_member_id, r.status, r.user_notes, r.created_at,
+      SELECT r.id, r.user_id, r.claimed_member_id, r.claimed_pastoral_member_id, r.status, r.user_notes, r.created_at,
              u.name as user_name, u.email as user_email, u.picture_url,
-             m.name as claimed_member_name
+             COALESCE(pm.name, m.name) as claimed_member_name
       FROM member_link_requests r
       JOIN users u ON u.id = r.user_id
       LEFT JOIN members m ON m.id = r.claimed_member_id
+      LEFT JOIN pastoral_members pm ON pm.id = r.claimed_pastoral_member_id OR pm.buyer_member_id = r.claimed_member_id
       WHERE r.status = 'pendente'
       ORDER BY r.created_at DESC
     `).all();
@@ -424,7 +419,7 @@ authRouter.post(
   authenticateToken,
   requireRole(['admin', 'coordenador']),
   (req: AuthenticatedRequest, res: Response) => {
-    const { request_id, user_id, role = 'membro', claimed_member_id } = req.body;
+    const { request_id, user_id, role = 'membro', claimed_member_id, claimed_pastoral_member_id } = req.body;
     const now = new Date().toISOString();
     const reviewer = req.user!.name;
 
@@ -438,22 +433,36 @@ authRouter.post(
         const targetUserId = request.user_id;
         db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').run(role, now, targetUserId);
 
+        const pmemToLink = claimed_pastoral_member_id || request.claimed_pastoral_member_id;
         const memberIdToLink = claimed_member_id || request.claimed_member_id;
-        if (memberIdToLink) {
+
+        if (pmemToLink) {
+          db.prepare(`
+            UPDATE pastoral_members
+            SET user_id = ?, buyer_member_id = COALESCE(buyer_member_id, ?), status = 'ativo', pastoral_role = ?, updated_at = ?
+            WHERE id = ?
+          `).run(
+            targetUserId,
+            memberIdToLink || null,
+            role === 'coordenador' ? 'coordenador' : 'membro',
+            now,
+            pmemToLink
+          );
+        } else if (memberIdToLink) {
           db.prepare(`
             UPDATE pastoral_members
             SET buyer_member_id = ?, user_id = ?, status = 'ativo', pastoral_role = ?, updated_at = ?
-            WHERE buyer_member_id = ? OR id = (SELECT id FROM pastoral_members WHERE user_id = ?)
+            WHERE buyer_member_id = ? OR id = ?
           `).run(
             memberIdToLink,
             targetUserId,
             role === 'coordenador' ? 'coordenador' : 'membro',
             now,
             memberIdToLink,
-            targetUserId
+            memberIdToLink
           );
         }
-        return res.json({ message: 'Solicitação aprovada com sucesso.' });
+        return res.json({ message: 'Solicitação de vínculo aprovada com sucesso.' });
       }
     }
 

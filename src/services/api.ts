@@ -134,9 +134,17 @@ export const api = {
 
   async createOrder(data: {
     campaign_id: string;
-    member_id: string;
+    pastoral_member_id?: string;
+    member_id?: string;
     items: { model: string; size: string; quantity: number; unit_price_cents: number }[];
     notes?: string;
+    production_status?: string;
+    initial_payment?: {
+      amount_cents: number;
+      payment_date: string;
+      payment_method: string;
+      notes?: string;
+    } | null;
   }) {
     const res = await fetch(`${API_BASE}/orders`, {
       method: 'POST',
@@ -526,6 +534,38 @@ export const api = {
     const qs = query.toString() ? `?${query.toString()}` : '';
     const res = await fetch(`${API_BASE}/platform/members${qs}`, { headers: getAuthHeader() });
     return handleResponse<any[]>(res);
+  },
+
+  async getMembersDirectory(params?: { search?: string; qualification?: string }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.qualification) query.append('qualification', params.qualification);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/platform/members/directory${qs}`, { headers: getAuthHeader() });
+    return handleResponse<any[]>(res);
+  },
+
+  async updateMemberPrivacy(id: string, data: { phone_visibility?: string; birthday_visibility?: string }) {
+    const res = await fetch(`${API_BASE}/platform/members/${id}/privacy`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getReconciliationData() {
+    const res = await fetch(`${API_BASE}/platform/reconciliation`, { headers: getAuthHeader() });
+    return handleResponse<{ pastoral_members: any[]; unlinked_buyers: any[] }>(res);
+  },
+
+  async reconcileMemberLink(pastoral_member_id: string, buyer_member_id: string) {
+    const res = await fetch(`${API_BASE}/platform/reconciliation/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ pastoral_member_id, buyer_member_id }),
+    });
+    return handleResponse<any>(res);
   },
 
   async getPastoralMember(id: string) {

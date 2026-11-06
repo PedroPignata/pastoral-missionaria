@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 export type NavItemKey =
   | 'painel_missionario'
   | 'comunidade'
+  | 'diretorio_membros'
   | 'calendario_2027'
   | 'missoes_envios'
   | 'formacao_laboratorios'
@@ -98,6 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
         { key: 'comunidade', label: 'Comunidade Missionária', icon: Users, badge: 'Novo' },
+        { key: 'diretorio_membros', label: 'Membros', icon: Users },
         { key: 'calendario_2027', label: 'Calendário', icon: Calendar },
         { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
         { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },
@@ -109,8 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Gestão Camisetas',
       items: [
         { key: 'visao_geral', label: 'Visão Geral (Camisetas)', icon: LayoutDashboard },
-        { key: 'pedidos', label: 'Pedidos', icon: ShoppingBag },
-        { key: 'membros', label: 'Compradores / Membros', icon: Users },
+        { key: 'pedidos', label: 'Pedidos & Compradores', icon: ShoppingBag },
         { key: 'financeiro', label: 'Financeiro (Camisetas)', icon: DollarSign },
         { key: 'producao', label: 'Produção e Entregas', icon: Truck },
         { key: 'relatorios', label: 'Relatórios & Exportação', icon: FileText },

@@ -67,14 +67,36 @@ export type ProductionStatus =
 export type DeliveryStatus = 'nao_entregue' | 'entregue';
 export type PaymentMethod = 'pix' | 'dinheiro' | 'transferencia' | 'outro';
 
+export interface OrderAuditHistoryItem {
+  id: string;
+  user_id?: string;
+  user_name?: string;
+  action: string;
+  details: {
+    previous_stage?: string;
+    new_stage?: string;
+    production_status?: string;
+    previous_delivery_status?: string;
+    new_delivery_status?: string;
+    delivery_status?: string;
+    delivered_to?: string;
+    note?: string;
+    [key: string]: any;
+  };
+  created_at: string;
+}
+
 export interface Order {
   id: string;
   campaign_id: string;
   campaign_name?: string;
   member_id: string;
+  pastoral_member_id?: string | null;
   member_name: string;
   member_display_name?: string;
   member_phone?: string;
+  historical_buyer_name?: string;
+  member_pastoral_role?: string;
   status: ProductionStatus;
   total_amount_cents: number;
   paid_amount_cents: number;
@@ -87,6 +109,7 @@ export interface Order {
   delivery_notes?: string;
   notes?: string;
   items: OrderItem[];
+  audit_history?: OrderAuditHistoryItem[];
   created_at: string;
   updated_at: string;
 }
@@ -110,11 +133,15 @@ export interface Payment {
 }
 
 export interface DashboardKPIs {
+  total_pastoral_members?: number;
+  total_buyers?: number;
   total_members: number;
   total_orders: number;
   total_tshirts: number;
   orders_waiting_confirmation: number;
   orders_confirmed: number;
+  orders_in_production?: number;
+  orders_received?: number;
   orders_cancelled: number;
   tshirts_ordered_supplier: number;
   tshirts_delivered: number;

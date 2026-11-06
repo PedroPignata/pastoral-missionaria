@@ -1012,6 +1012,9 @@ platformRouter.delete('/announcements/:id', authenticateToken, requireRole(['adm
 // GET /api/platform/members (Listagem e Busca com Filtros)
 platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { search, role, status, qualification } = req.query;
+  const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
+  const currentUserId = req.user?.id;
+
   let sql = 'SELECT * FROM pastoral_members WHERE 1=1';
   const params: any[] = [];
 
@@ -1031,13 +1034,26 @@ platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, re
   }
 
   sql += " ORDER BY CASE pastoral_role WHEN 'coordenador' THEN 1 WHEN 'admin' THEN 2 WHEN 'delegado' THEN 3 ELSE 4 END, name ASC";
-  const rows = db.prepare(sql).all(...params).map((m: any) => ({
-    ...m,
-    qualifications: JSON.parse(m.qualifications_json || '[]'),
-    skills: JSON.parse(m.skills_json || '[]'),
-    availability: JSON.parse(m.availability_json || '{}'),
-    welcome_checklist: JSON.parse(m.welcome_checklist_json || '{}'),
-  }));
+  const rows = db.prepare(sql).all(...params).map((m: any) => {
+    const isSelf = Boolean(currentUserId && m.user_id === currentUserId);
+    const phoneVis = m.phone_visibility || 'directory';
+    const canSeePhone =
+      isCoordinator ||
+      isSelf ||
+      (phoneVis === 'directory' && req.user?.role !== 'pendente');
+
+    return {
+      ...m,
+      phone: canSeePhone ? m.phone : null,
+      email: isCoordinator || isSelf ? m.email : null,
+      notes: isCoordinator ? m.notes : null,
+      birth_year: isCoordinator || isSelf ? m.birth_year : null,
+      qualifications: JSON.parse(m.qualifications_json || '[]'),
+      skills: JSON.parse(m.skills_json || '[]'),
+      availability: JSON.parse(m.availability_json || '{}'),
+      welcome_checklist: JSON.parse(m.welcome_checklist_json || '{}'),
+    };
+  });
 
   let filtered = rows;
   if (qualification && qualification !== 'todas') {
@@ -1045,6 +1061,179 @@ platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, re
   }
 
   return res.json(filtered);
+});
+
+// GET /api/platform/members/directory (Diretório Institucional Somente Leitura da Pastoral)
+platformRouter.get('/members/directory', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role === 'pendente') {
+    return res.status(403).json({ error: 'Acesso ao diretório institucional restrito a membros ativos da Pastoral.' });
+  }
+
+  const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
+  const currentUserId = req.user?.id;
+  const { search, qualification } = req.query;
+
+  let sql = `
+    SELECT id, user_id, name, display_name, pastoral_role, status, photo_url,
+           phone, COALESCE(phone_visibility, 'directory') as phone_visibility,
+           qualifications_json
+    FROM pastoral_members
+    WHERE status = 'ativo'
+  `;
+  const params: any[] = [];
+
+  if (search && typeof search === 'string' && search.trim()) {
+    const term = `%${search.trim()}%`;
+    sql += ' AND (name LIKE ? OR display_name LIKE ? OR phone LIKE ?)';
+    params.push(term, term, term);
+  }
+
+  sql += " ORDER BY CASE pastoral_role WHEN 'coordenador' THEN 1 WHEN 'admin' THEN 2 WHEN 'delegado' THEN 3 ELSE 4 END, name ASC";
+
+  const rows = db.prepare(sql).all(...params).map((m: any) => {
+    const isSelf = Boolean(currentUserId && m.user_id === currentUserId);
+    const phoneVis = m.phone_visibility || 'directory';
+    const canSeePhone =
+      isCoordinator ||
+      isSelf ||
+      phoneVis === 'directory';
+
+    return {
+      id: m.id,
+      name: m.name,
+      display_name: m.display_name,
+      pastoral_role: m.pastoral_role,
+      status: m.status,
+      photo_url: m.photo_url,
+      phone: canSeePhone ? m.phone : null,
+      phone_visibility: phoneVis,
+      is_self: isSelf,
+      qualifications: JSON.parse(m.qualifications_json || '[]'),
+    };
+  });
+
+  let filtered = rows;
+  if (qualification && qualification !== 'todas') {
+    filtered = rows.filter((m: any) => m.qualifications.includes(qualification));
+  }
+
+  return res.json(filtered);
+});
+
+// PATCH /api/platform/members/:id/privacy (Configuração de Privacidade do Telefone no Diretório)
+platformRouter.patch('/members/:id/privacy', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { phone_visibility, birthday_visibility } = req.body;
+  const isCoordinator = req.user?.role === 'admin' || req.user?.role === 'coordenador';
+
+  const existing = db.prepare('SELECT id, user_id, name FROM pastoral_members WHERE id = ?').get(id) as any;
+  if (!existing) {
+    return res.status(404).json({ error: 'Missionário não encontrado.' });
+  }
+
+  if (!isCoordinator && existing.user_id !== req.user?.id) {
+    return res.status(403).json({ error: 'Você só pode alterar a privacidade do seu próprio perfil.' });
+  }
+
+  const validPhoneVis = ['directory', 'coordinators_only', 'private'];
+  if (phone_visibility && !validPhoneVis.includes(phone_visibility)) {
+    return res.status(400).json({ error: 'Visibilidade de telefone inválida.' });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE pastoral_members
+    SET phone_visibility = COALESCE(?, phone_visibility),
+        birthday_visibility = COALESCE(?, birthday_visibility),
+        updated_at = ?
+    WHERE id = ?
+  `).run(phone_visibility || null, birthday_visibility || null, now, id);
+
+  return res.json({
+    message: 'Preferências de privacidade atualizadas com sucesso!',
+    phone_visibility: phone_visibility || 'directory',
+  });
+});
+
+// GET /api/platform/reconciliation (Painel de Reconciliação de Identidade Institucional x Compradores)
+platformRouter.get('/reconciliation', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
+  const pastoralMembers = db.prepare(`
+    SELECT pm.id, pm.name, pm.display_name, pm.phone, pm.pastoral_role, pm.status, pm.buyer_member_id,
+           m.name as buyer_name, m.phone as buyer_phone,
+           (SELECT COUNT(*) FROM orders o WHERE o.member_id = pm.buyer_member_id OR o.pastoral_member_id = pm.id) as orders_count
+    FROM pastoral_members pm
+    LEFT JOIN members m ON m.id = pm.buyer_member_id
+    ORDER BY pm.name ASC
+  `).all();
+
+  const unlinkedBuyers = db.prepare(`
+    SELECT m.*,
+           (SELECT COUNT(*) FROM orders o WHERE o.member_id = m.id) as orders_count
+    FROM members m
+    WHERE NOT EXISTS (SELECT 1 FROM pastoral_members pm WHERE pm.buyer_member_id = m.id)
+    ORDER BY m.name ASC
+  `).all();
+
+  return res.json({
+    pastoral_members: pastoralMembers,
+    unlinked_buyers: unlinkedBuyers,
+  });
+});
+
+// POST /api/platform/reconciliation/link (Vincular Comprador a Missionário Institucional com Auditoria)
+platformRouter.post('/reconciliation/link', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { pastoral_member_id, buyer_member_id } = req.body;
+  if (!pastoral_member_id || !buyer_member_id) {
+    return res.status(400).json({ error: 'Missionário institucional e registro de comprador são obrigatórios.' });
+  }
+
+  const pm = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(pastoral_member_id) as any;
+  const buyer = db.prepare('SELECT * FROM members WHERE id = ?').get(buyer_member_id) as any;
+
+  if (!pm || !buyer) {
+    return res.status(404).json({ error: 'Registro não encontrado.' });
+  }
+
+  const now = new Date().toISOString();
+  const tx = db.transaction(() => {
+    // Remove previous link to this buyer if any
+    db.prepare('UPDATE pastoral_members SET buyer_member_id = NULL WHERE buyer_member_id = ?').run(buyer.id);
+
+    // Link pastoral_member to buyer
+    db.prepare('UPDATE pastoral_members SET buyer_member_id = ?, updated_at = ? WHERE id = ?')
+      .run(buyer.id, now, pm.id);
+
+    // Update orders to reference pastoral_member_id and preserve historical name
+    db.prepare(`
+      UPDATE orders
+      SET pastoral_member_id = ?,
+          historical_buyer_name = COALESCE(historical_buyer_name, ?)
+      WHERE member_id = ?
+    `).run(pm.id, buyer.name, buyer.id);
+
+    // Sync buyer name and phone with institutional missionary
+    db.prepare(`
+      UPDATE members
+      SET name = ?, display_name = ?, phone = COALESCE(NULLIF(?, ''), phone), updated_at = ?
+      WHERE id = ?
+    `).run(pm.name, pm.display_name || pm.name.split(' ')[0], pm.phone || '', now, buyer.id);
+
+    db.prepare(`
+      INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'RECONCILE_MEMBER_LINK', 'pastoral_member', ?, ?, ?)
+    `).run(
+      crypto.randomUUID(),
+      req.user?.id,
+      req.user?.name,
+      pm.id,
+      JSON.stringify({ pastoral_member_id: pm.id, buyer_member_id: buyer.id, historical_name: buyer.name }),
+      now
+    );
+  });
+
+  tx();
+
+  return res.json({ message: `Vínculo reconciliado com sucesso entre ${pm.name} e o pedido #${buyer.id}.` });
 });
 
 // GET /api/platform/members/birthdays (Aniversariantes do dia, mês e próximos)

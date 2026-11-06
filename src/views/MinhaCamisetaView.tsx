@@ -29,12 +29,25 @@ const STAGES = [
 
 export const MinhaCamisetaView: React.FC<MinhaCamisetaViewProps> = ({ orders }) => {
   const [selectedOrderId, setSelectedOrderId] = useState<string>(orders[0]?.id || '');
-  const [pixKey, setPixKey] = useState('pastoralmissionaria@agape.org.br');
+  const [pixKey, setPixKey] = useState('(61)992568165');
   const [copiedPix, setCopiedPix] = useState(false);
+
+  // Solicitação controlada de vínculo (Seção 10.3)
+  const [unclaimedMembers, setUnclaimedMembers] = useState<any[]>([]);
+  const [selectedClaimId, setSelectedClaimId] = useState('');
+  const [claimNotes, setClaimNotes] = useState('');
+  const [claimFeedback, setClaimFeedback] = useState('');
+  const [isClaiming, setIsClaiming] = useState(false);
 
   useEffect(() => {
     if (orders.length > 0 && !selectedOrderId) {
       setSelectedOrderId(orders[0].id);
+    }
+    if (orders.length === 0) {
+      api
+        .getUnclaimedMembers()
+        .then((list) => setUnclaimedMembers(Array.isArray(list) ? list : []))
+        .catch(() => {});
     }
     api
       .getPixSettings()
@@ -50,6 +63,26 @@ export const MinhaCamisetaView: React.FC<MinhaCamisetaViewProps> = ({ orders }) 
           .catch(() => {});
       });
   }, [orders, selectedOrderId]);
+
+  const handleRequestLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClaimId) return;
+    setIsClaiming(true);
+    setClaimFeedback('');
+    try {
+      const res = await api.claimMember(selectedClaimId, claimNotes);
+      setClaimFeedback(
+        res.message ||
+          'Solicitação enviada com sucesso! A coordenação (Pedro e Fernanda) confirmará seu vínculo.'
+      );
+      setSelectedClaimId('');
+      setClaimNotes('');
+    } catch (err: any) {
+      setClaimFeedback(err.message || 'Não foi possível enviar a solicitação.');
+    } finally {
+      setIsClaiming(false);
+    }
+  };
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId) || orders[0];
 
@@ -133,16 +166,57 @@ export const MinhaCamisetaView: React.FC<MinhaCamisetaViewProps> = ({ orders }) 
           )}
 
           {orders.length === 0 && (
-            <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 text-center space-y-3">
-              <Shirt className="w-8 h-8 text-zinc-400 mx-auto" />
-              <div className="space-y-1">
+            <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-4">
+              <div className="text-center space-y-1.5">
+                <Shirt className="w-8 h-8 text-pastoral-dourado mx-auto" />
                 <h4 className="font-serif font-bold text-sm text-pastoral-cafe">
                   Nenhum pedido vinculado à sua conta
                 </h4>
                 <p className="text-xs text-zinc-500">
-                  Se você já encomendou sua camiseta na lista dos 19 compradores, solicite o vínculo na tela inicial de acolhimento para acompanhar seu status aqui.
+                  Se você já faz parte da Pastoral Missionária ou encomendou sua camiseta, solicite abaixo o vínculo do seu cadastro institucional para a coordenação confirmar:
                 </p>
               </div>
+
+              {claimFeedback ? (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-medium text-center">
+                  {claimFeedback}
+                </div>
+              ) : (
+                <form onSubmit={handleRequestLink} className="space-y-2.5 text-left">
+                  <div>
+                    <label className="block text-[11px] font-bold text-pastoral-cafe uppercase mb-1">
+                      Selecione seu nome no cadastro da Pastoral:
+                    </label>
+                    <select
+                      value={selectedClaimId}
+                      onChange={(e) => setSelectedClaimId(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-xl bg-white"
+                      required
+                    >
+                      <option value="">Selecione seu cadastro...</option>
+                      {unclaimedMembers.map((m) => (
+                        <option key={m.pastoral_member_id || m.id} value={m.id}>
+                          {m.name} {m.orders_count > 0 ? `(${m.orders_count} pedido de camiseta)` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <input
+                    type="text"
+                    value={claimNotes}
+                    onChange={(e) => setClaimNotes(e.target.value)}
+                    placeholder="Observação opcional para a coordenação..."
+                    className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-xl bg-white"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isClaiming || !selectedClaimId}
+                    className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-xs transition-all disabled:opacity-50"
+                  >
+                    {isClaiming ? 'Enviando solicitação...' : 'Solicitar Vínculo à Coordenação'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
 

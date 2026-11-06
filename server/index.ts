@@ -33,7 +33,7 @@ initDatabase();
 seedDatabase();
 runMigrations();
 
-const app = express();
+export const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middlewares
@@ -88,10 +88,12 @@ app.use((req, res, next) => {
 });
 
 // Start Express Server
-app.listen(PORT, () => {
-  console.log(`\n======================================================`);
-  console.log(`🕊️  SISTEMA DE GESTÃO DA PASTORAL MISSIONÁRIA`);
-  console.log(`✝️  Ágape Apostolado de Jovens - Paróquia São Vicente de Paulo`);
-  console.log(`📡 Servidor Backend executando em: http://localhost:${PORT}`);
-  console.log(`======================================================\n`);
-});
+if (process.env.TEST_MODE !== 'true') {
+  app.listen(PORT, () => {
+    console.log(`\n======================================================`);
+    console.log(`🕊️  SISTEMA DE GESTÃO DA PASTORAL MISSIONÁRIA`);
+    console.log(`✝️  Ágape Apostolado de Jovens - Paróquia São Vicente de Paulo`);
+    console.log(`📡 Servidor Backend executando em: http://localhost:${PORT}`);
+    console.log(`======================================================\n`);
+  });
+}

@@ -36,6 +36,13 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
   } | null>(null);
 
   const [copied, setCopied] = useState(false);
+  const [bulkMoveConfirm, setBulkMoveConfirm] = useState<{
+    fromStage: ProductionStatus;
+    toStage: ProductionStatus;
+    toTitle: string;
+    ordersToMove: Order[];
+  } | null>(null);
+  const [isMovingBulk, setIsMovingBulk] = useState(false);
 
   useEffect(() => {
     api.getSupplierReport()
@@ -43,7 +50,13 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
       .catch(console.error);
   }, [orders]);
 
-  const handleAdvanceStage = async (order: Order, nextStage: ProductionStatus) => {
+  const handleAdvanceStage = async (order: Order, nextStage: ProductionStatus, isRevert = false) => {
+    if (isRevert) {
+      const ok = window.confirm(
+        `Deseja realmente retornar o pedido de ${order.member_name} para a etapa anterior?`
+      );
+      if (!ok) return;
+    }
     if (nextStage === 'entregue') {
       onOpenDelivery(order);
       return;
@@ -53,6 +66,24 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
       onRefresh();
     } catch (err: any) {
       alert('Erro ao atualizar etapa: ' + err.message);
+    }
+  };
+
+  const handleConfirmColumnBulkMove = async () => {
+    if (!bulkMoveConfirm || bulkMoveConfirm.ordersToMove.length === 0) return;
+    setIsMovingBulk(true);
+    try {
+      await api.bulkUpdateOrderStatus({
+        order_ids: bulkMoveConfirm.ordersToMove.map((o) => o.id),
+        production_status: bulkMoveConfirm.toStage,
+        delivery_status: bulkMoveConfirm.toStage === 'entregue' ? 'entregue' : undefined,
+      });
+      setBulkMoveConfirm(null);
+      onRefresh();
+    } catch (err: any) {
+      alert('Erro na movimentação em lote: ' + err.message);
+    } finally {
+      setIsMovingBulk(false);
     }
   };
 
@@ -110,7 +141,9 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
           <div className="flex gap-4 min-w-[1200px]">
             {STAGES.map((st, idx) => {
               const stageOrders = orders.filter((o) => o.production_status === st.key && o.status !== 'cancelado');
+              const prevStage = STAGES[idx - 1]?.key;
               const nextStage = STAGES[idx + 1]?.key;
+              const nextStageTitle = STAGES[idx + 1]?.title;
 
               return (
                 <div
@@ -119,11 +152,29 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
                 >
                   {/* Column Header */}
                   <div>
-                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-200">
-                      <h3 className="font-bold text-xs text-pastoral-cafe">{st.title}</h3>
-                      <span className="w-5 h-5 rounded-full bg-pastoral-creme text-pastoral-cafe font-bold text-[10px] flex items-center justify-center border border-pastoral-dourado/30">
-                        {stageOrders.length}
-                      </span>
+                    <div className="mb-3 pb-2 border-b border-zinc-200 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-bold text-xs text-pastoral-cafe">{st.title}</h3>
+                        <span className="w-5 h-5 rounded-full bg-pastoral-creme text-pastoral-cafe font-bold text-[10px] flex items-center justify-center border border-pastoral-dourado/30">
+                          {stageOrders.length}
+                        </span>
+                      </div>
+                      {canEdit && stageOrders.length > 0 && nextStage && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBulkMoveConfirm({
+                              fromStage: st.key,
+                              toStage: nextStage,
+                              toTitle: nextStageTitle || nextStage,
+                              ordersToMove: stageOrders,
+                            })
+                          }
+                          className="w-full py-1 px-2 rounded-lg text-[10px] font-bold bg-pastoral-dourado/15 hover:bg-pastoral-dourado/25 text-pastoral-cafe border border-pastoral-dourado/30 flex items-center justify-center gap-1 transition-colors"
+                        >
+                          Avançar todos ({stageOrders.length}) <ArrowRight className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
 
                     {/* Cards List */}
@@ -139,12 +190,21 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
                             className="p-3 bg-white rounded-xl border border-zinc-200/90 shadow-xs space-y-2 hover:border-pastoral-dourado/50 transition-colors"
                           >
                             <div className="flex items-start justify-between gap-1">
-                              <p className="font-bold text-xs text-pastoral-cafe leading-tight">
-                                {o.member_name}
-                              </p>
-                              {o.balance_cents > 0 && (
-                                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                              <div>
+                                <p className="font-bold text-xs text-pastoral-cafe leading-tight">
+                                  {o.member_name}
+                                </p>
+                                {o.member_phone && (
+                                  <p className="text-[10px] text-zinc-400 mt-0.5">{o.member_phone}</p>
+                                )}
+                              </div>
+                              {o.balance_cents > 0 ? (
+                                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded shrink-0">
                                   {formatCurrency(o.balance_cents)}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0">
+                                  Pago
                                 </span>
                               )}
                             </div>
@@ -158,14 +218,29 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
                               ))}
                             </div>
 
-                            {/* Advance stage button */}
-                            {canEdit && nextStage && (
-                              <button
-                                onClick={() => handleAdvanceStage(o, nextStage)}
-                                className="w-full mt-1 py-1 px-2 rounded-lg text-[10px] font-semibold bg-pastoral-creme hover:bg-pastoral-creme-escuro text-pastoral-cafe border border-pastoral-dourado/30 flex items-center justify-center gap-1 transition-colors"
-                              >
-                                Avançar para etapa seguinte <ChevronRight className="w-3 h-3" />
-                              </button>
+                            {/* Stage navigation buttons */}
+                            {canEdit && (
+                              <div className="flex items-center gap-1 pt-0.5">
+                                {prevStage && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdvanceStage(o, prevStage, true)}
+                                    title="Retornar para etapa anterior"
+                                    className="py-1 px-2 rounded-lg text-[10px] font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-600 transition-colors"
+                                  >
+                                    Voltar
+                                  </button>
+                                )}
+                                {nextStage && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdvanceStage(o, nextStage, false)}
+                                    className="flex-1 py-1 px-2 rounded-lg text-[10px] font-semibold bg-pastoral-creme hover:bg-pastoral-creme-escuro text-pastoral-cafe border border-pastoral-dourado/30 flex items-center justify-center gap-1 transition-colors"
+                                  >
+                                    Avançar <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
                             )}
 
                             {/* If already delivered, show date and recipient */}
@@ -263,6 +338,59 @@ export const ProducaoEntregasView: React.FC<ProducaoEntregasViewProps> = ({
             </div>
             <div className="text-xs text-zinc-300 text-right">
               Pastoral Missionária • Ágape Apostolado
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Movimentação em Lote na Produção */}
+      {bulkMoveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-pastoral-profundo/75 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-pastoral-dourado/30 space-y-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-serif font-bold text-base text-pastoral-cafe">
+                  Confirmar Avanço em Lote
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Mover {bulkMoveConfirm.ordersToMove.length}{' '}
+                  {bulkMoveConfirm.ordersToMove.length === 1 ? 'pedido' : 'pedidos'} para{' '}
+                  <b>{bulkMoveConfirm.toTitle}</b>.
+                </p>
+              </div>
+            </div>
+
+            <div className="max-h-40 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100 text-xs">
+              {bulkMoveConfirm.ordersToMove.map((ord) => (
+                <div key={ord.id} className="px-3 py-2 flex items-center justify-between">
+                  <span className="font-semibold text-pastoral-cafe">{ord.member_name}</span>
+                  <span className="text-[10px] text-zinc-500">
+                    {ord.items.map((i) => `${i.quantity}x ${i.model} ${i.size}`).join(', ')}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setBulkMoveConfirm(null)}
+                disabled={isMovingBulk}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmColumnBulkMove}
+                disabled={isMovingBulk}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-gold"
+              >
+                {isMovingBulk ? 'Movendo...' : 'Confirmar Avanço'}
+              </button>
             </div>
           </div>
         </div>

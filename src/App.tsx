@@ -12,6 +12,7 @@ import { MissoesEnviosView } from './views/MissoesEnviosView';
 import { FormacaoLaboratoriosView } from './views/FormacaoLaboratoriosView';
 import { MinhaCamisetaView } from './views/MinhaCamisetaView';
 import { ComunidadeMissionariaView } from './views/ComunidadeMissionariaView';
+import { DiretorioMembrosView } from './views/DiretorioMembrosView';
 import { GovernancaSucessaoView } from './views/GovernancaSucessaoView';
 import { PublicPortalView } from './views/PublicPortalView';
 
@@ -309,6 +310,12 @@ export const App: React.FC = () => {
 
           {currentView === 'comunidade' && <ComunidadeMissionariaView />}
 
+          {currentView === 'diretorio_membros' && (
+            <ModuleErrorBoundary moduleName="Diretório de Membros">
+              <DiretorioMembrosView />
+            </ModuleErrorBoundary>
+          )}
+
           {currentView === 'calendario_2027' && (
             <ModuleErrorBoundary moduleName="Calendário">
               <Calendario2027View />
@@ -347,9 +354,10 @@ export const App: React.FC = () => {
             />
           )}
 
-          {currentView === 'pedidos' && (
+          {(currentView === 'pedidos' || currentView === 'membros') && (
             <PedidosView
               orders={orders}
+              kpis={dashboardData?.kpis || null}
               onOpenNewOrder={() => setIsNewOrderModalOpen(true)}
               onOpenOrderDetails={setSelectedOrderForDetails}
               onOpenPayment={setSelectedOrderForPayment}
@@ -357,14 +365,6 @@ export const App: React.FC = () => {
               onOpenWhatsApp={setSelectedOrderForWhatsApp}
               onBulkUpdateStatus={handleBulkUpdateStatus}
               isLoading={isLoadingData}
-            />
-          )}
-
-          {currentView === 'membros' && (
-            <MembrosView
-              members={members}
-              onRefresh={loadAllData}
-              onOpenOrderDetails={setSelectedOrderForDetails}
             />
           )}
 
@@ -424,7 +424,10 @@ export const App: React.FC = () => {
         isOpen={isNewOrderModalOpen}
         onClose={() => setIsNewOrderModalOpen(false)}
         activeCampaign={activeCampaign}
+        orders={orders}
         onOrderCreated={loadAllData}
+        onOpenExistingOrder={(ord) => setSelectedOrderForDetails(ord)}
+        onNavigateToGovernance={() => setCurrentView('governanca')}
       />
 
       <RecordPaymentModal

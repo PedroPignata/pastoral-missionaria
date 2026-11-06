@@ -43,6 +43,7 @@ dashboardRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']
 
   // Total members in system (regardless of campaign)
   const totalAllMembers = db.prepare('SELECT COUNT(*) as count FROM members WHERE active = 1').get() as any;
+  const totalPastoralMembers = db.prepare("SELECT COUNT(*) as count FROM pastoral_members WHERE status = 'ativo'").get() as any;
 
   // Cancelled orders count
   const cancelledOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'cancelado'").get() as any;
@@ -121,11 +122,15 @@ dashboardRouter.get('/', authenticateToken, requireRole(['admin', 'coordenador']
 
   return res.json({
     kpis: {
+      total_pastoral_members: totalPastoralMembers.count || 0,
+      total_buyers: metrics.total_members_registered || 0,
       total_members: totalAllMembers.count,
       total_orders: metrics.total_orders || 0,
       total_tshirts: metrics.total_tshirts || 0,
       orders_waiting_confirmation: metrics.orders_waiting_confirmation || 0,
       orders_confirmed: metrics.orders_confirmed || 0,
+      orders_in_production: metrics.orders_in_production || 0,
+      orders_received: metrics.orders_received || 0,
       orders_cancelled: cancelledOrders.count || 0,
       tshirts_ordered_supplier: metrics.orders_ordered_supplier || 0,
       tshirts_delivered: metrics.tshirts_delivered || 0,

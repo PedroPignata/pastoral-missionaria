@@ -1,15 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../common/Modal';
-import { Member, Campaign, TShirtModel, TShirtSize } from '../../types';
+import { Campaign, Order, TShirtModel, TShirtSize, ProductionStatus } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency } from '../../utils/formatters';
-import { Plus, Trash2, UserPlus } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  UserPlus,
+  Search,
+  ShieldCheck,
+  Phone,
+  AlertTriangle,
+  DollarSign,
+  ExternalLink,
+  Check,
+} from 'lucide-react';
 
 interface NewOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeCampaign: Campaign | null;
+  orders?: Order[];
   onOrderCreated: () => void;
+  onOpenExistingOrder?: (order: Order) => void;
+  onNavigateToGovernance?: () => void;
 }
 
 interface ItemRow {
@@ -19,18 +33,45 @@ interface ItemRow {
   unit_price_cents: number;
 }
 
+interface PastoralMemberOption {
+  id: string;
+  buyer_member_id?: string | null;
+  name: string;
+  display_name: string;
+  phone?: string | null;
+  pastoral_role: string;
+  status: string;
+}
+
 export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   isOpen,
   onClose,
   activeCampaign,
+  orders = [],
   onOrderCreated,
+  onOpenExistingOrder,
+  onNavigateToGovernance,
 }) => {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [pastoralMembers, setPastoralMembers] = useState<PastoralMemberOption[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [selectedPastoralMemberId, setSelectedPastoralMemberId] = useState('');
   const [isNewMemberMode, setIsNewMemberMode] = useState(false);
+
+  // Novo missionário na Governança
   const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberDisplayName, setNewMemberDisplayName] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
+  const [isCreatingMember, setIsCreatingMember] = useState(false);
+
+  // Dados do pedido
+  const [productionStatus, setProductionStatus] = useState<ProductionStatus>('em_producao');
   const [notes, setNotes] = useState('');
+  const [hasInitialPayment, setHasInitialPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | 'transferencia' | 'outro'>('pix');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [paymentAmountReais, setPaymentAmountReais] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -40,17 +81,71 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     { model: 'Tradicional', size: 'M', quantity: 1, unit_price_cents: defaultPrice },
   ]);
 
+  const loadInstitutionalMembers = async () => {
+    try {
+      const list = await api.getPastoralMembers({ status: 'ativo' });
+      setPastoralMembers(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error('Erro ao carregar missionários da Governança:', err);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
-      api.getMembers({ active: true }).then(setMembers).catch(console.error);
+      loadInstitutionalMembers();
       setError('');
+      setMemberSearch('');
+      setSelectedPastoralMemberId('');
       setIsNewMemberMode(false);
       setNewMemberName('');
+      setNewMemberDisplayName('');
       setNewMemberPhone('');
-      setSelectedMemberId('');
+      setProductionStatus('em_producao');
+      setNotes('');
+      setHasInitialPayment(false);
+      setPaymentMethod('pix');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      setPaymentAmountReais('');
+      setPaymentNotes('');
       setItems([{ model: 'Tradicional', size: 'M', quantity: 1, unit_price_cents: defaultPrice }]);
     }
   }, [isOpen, defaultPrice]);
+
+  const filteredPastoralMembers = useMemo(() => {
+    if (!memberSearch.trim()) return pastoralMembers;
+    const term = memberSearch.toLowerCase().trim();
+    return pastoralMembers.filter(
+      (m) =>
+        m.name.toLowerCase().includes(term) ||
+        (m.display_name || '').toLowerCase().includes(term) ||
+        (m.phone || '').includes(term)
+    );
+  }, [pastoralMembers, memberSearch]);
+
+  const selectedMember = useMemo(
+    () => pastoralMembers.find((m) => m.id === selectedPastoralMemberId) || null,
+    [pastoralMembers, selectedPastoralMemberId]
+  );
+
+  // Verifica se o missionário selecionado já possui pedido na campanha ativa (Seção 7.2)
+  const existingOrdersForMember = useMemo(() => {
+    if (!selectedMember || !activeCampaign) return [];
+    return orders.filter(
+      (o) =>
+        o.campaign_id === activeCampaign.id &&
+        o.status !== 'cancelado' &&
+        (o.pastoral_member_id === selectedMember.id ||
+          (selectedMember.buyer_member_id && o.member_id === selectedMember.buyer_member_id))
+    );
+  }, [orders, selectedMember, activeCampaign]);
+
+  const totalAmountCents = items.reduce((acc, it) => acc + it.quantity * it.unit_price_cents, 0);
+
+  useEffect(() => {
+    if (hasInitialPayment && !paymentAmountReais) {
+      setPaymentAmountReais((totalAmountCents / 100).toFixed(2));
+    }
+  }, [hasInitialPayment, totalAmountCents]);
 
   const handleAddItem = () => {
     setItems([...items, { model: 'Baby look', size: 'M', quantity: 1, unit_price_cents: defaultPrice }]);
@@ -67,7 +162,36 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     setItems(updated);
   };
 
-  const totalAmountCents = items.reduce((acc, it) => acc + (it.quantity * it.unit_price_cents), 0);
+  const handleCreateGovernanceMemberInline = async () => {
+    if (!newMemberName.trim()) {
+      setError('Informe o nome completo do novo missionário.');
+      return;
+    }
+    setIsCreatingMember(true);
+    setError('');
+    try {
+      const created = await api.createPastoralMember({
+        name: newMemberName.trim(),
+        display_name: newMemberDisplayName.trim() || newMemberName.trim().split(' ')[0],
+        phone: newMemberPhone.trim() || null,
+        pastoral_role: 'membro',
+        status: 'ativo',
+        qualifications: ['Intercessão'],
+      });
+      await loadInstitutionalMembers();
+      if (created?.id) {
+        setSelectedPastoralMemberId(created.id);
+      }
+      setIsNewMemberMode(false);
+      setNewMemberName('');
+      setNewMemberDisplayName('');
+      setNewMemberPhone('');
+    } catch (err: any) {
+      setError(err.message || 'Erro ao cadastrar missionário na Governança.');
+    } finally {
+      setIsCreatingMember(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,34 +202,35 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       return;
     }
 
-    let memberId = selectedMemberId;
+    if (!selectedPastoralMemberId) {
+      setError('Selecione um missionário da Governança para vincular ao pedido.');
+      return;
+    }
+
+    let initialPaymentPayload = null;
+    if (hasInitialPayment) {
+      const parsedReais = parseFloat(paymentAmountReais.replace(',', '.'));
+      if (isNaN(parsedReais) || parsedReais <= 0) {
+        setError('Informe um valor válido para o pagamento inicial.');
+        return;
+      }
+      initialPaymentPayload = {
+        amount_cents: Math.round(parsedReais * 100),
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        notes: paymentNotes.trim() || 'Pagamento registrado no ato da encomenda',
+      };
+    }
 
     setIsSubmitting(true);
     try {
-      if (isNewMemberMode) {
-        if (!newMemberName.trim()) {
-          setError('Informe o nome do novo membro.');
-          setIsSubmitting(false);
-          return;
-        }
-        const newMember = await api.createMember({
-          name: newMemberName.trim(),
-          phone: newMemberPhone.trim(),
-        });
-        memberId = newMember.id;
-      }
-
-      if (!memberId) {
-        setError('Selecione ou cadastre um membro para o pedido.');
-        setIsSubmitting(false);
-        return;
-      }
-
       await api.createOrder({
         campaign_id: activeCampaign.id,
-        member_id: memberId,
+        pastoral_member_id: selectedPastoralMemberId,
         items,
         notes,
+        production_status: productionStatus,
+        initial_payment: initialPaymentPayload,
       });
 
       onOrderCreated();
@@ -122,7 +247,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Novo Pedido de Camiseta"
-      subtitle={activeCampaign?.name || 'Pastoral Missionária'}
+      subtitle={`${activeCampaign?.name || 'Pastoral Missionária'} • Vinculado à Governança`}
       maxWidth="xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,11 +257,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </div>
         )}
 
-        {/* Member Selector or Creator */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
+        {/* Etapa 1: Seleção do Missionário Institucional da Governança */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
             <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider">
-              Membro Responsável *
+              1. Selecionar Missionário (Governança) *
             </label>
             <button
               type="button"
@@ -144,49 +269,158 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               className="text-xs text-pastoral-dourado font-semibold hover:underline flex items-center gap-1"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              {isNewMemberMode ? 'Selecionar membro existente' : 'Novo membro'}
+              {isNewMemberMode
+                ? 'Selecionar missionário existente'
+                : 'Cadastrar novo missionário na Governança'}
             </button>
           </div>
 
           {!isNewMemberMode ? (
-            <select
-              value={selectedMemberId}
-              onChange={(e) => setSelectedMemberId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-zinc-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-pastoral-dourado focus:border-pastoral-dourado"
-              required
-            >
-              <option value="">Selecione um membro cadastrado...</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} {m.phone ? `(${m.phone})` : ''}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div className="space-y-2 p-3 bg-pastoral-creme/50 rounded-xl border border-pastoral-dourado/20">
-              <input
-                type="text"
-                placeholder="Nome completo do membro"
-                value={newMemberName}
-                onChange={(e) => setNewMemberName(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-zinc-300 rounded-xl bg-white focus:ring-2 focus:ring-pastoral-dourado focus:border-pastoral-dourado"
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="Filtrar missionário por nome, apelido ou telefone..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-pastoral-dourado"
+                />
+              </div>
+
+              <select
+                value={selectedPastoralMemberId}
+                onChange={(e) => setSelectedPastoralMemberId(e.target.value)}
+                className="w-full px-3 py-2.5 text-sm border border-zinc-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-pastoral-dourado font-medium text-pastoral-cafe"
                 required
-              />
-              <input
-                type="tel"
-                placeholder="Telefone / WhatsApp (opcional)"
-                value={newMemberPhone}
-                onChange={(e) => setNewMemberPhone(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-zinc-300 rounded-xl bg-white focus:ring-2 focus:ring-pastoral-dourado focus:border-pastoral-dourado"
-              />
+              >
+                <option value="">
+                  Selecione entre os {filteredPastoralMembers.length} missionários ativos...
+                </option>
+                {filteredPastoralMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} {m.display_name && m.display_name !== m.name ? `(${m.display_name})` : ''}{' '}
+                    {m.phone ? `• ${m.phone}` : ''} [{m.id}]
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="space-y-2.5 p-3.5 bg-pastoral-creme/60 rounded-xl border border-pastoral-dourado/30">
+              <p className="text-[11px] font-semibold text-pastoral-cafe">
+                Novo Cadastro Institucional (Governança)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Nome completo do missionário *"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-xl bg-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Nome de exibição / Apelido"
+                  value={newMemberDisplayName}
+                  onChange={(e) => setNewMemberDisplayName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-xl bg-white"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="tel"
+                  placeholder="Telefone / WhatsApp — ex: (61) 99999-9999"
+                  value={newMemberPhone}
+                  onChange={(e) => setNewMemberPhone(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs border border-zinc-300 rounded-xl bg-white"
+                />
+                <button
+                  type="button"
+                  disabled={isCreatingMember}
+                  onClick={handleCreateGovernanceMemberInline}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-pastoral-cafe text-white hover:bg-pastoral-profundo flex items-center gap-1 shrink-0"
+                >
+                  <Check className="w-3.5 h-3.5 text-pastoral-dourado" />
+                  {isCreatingMember ? 'Salvando...' : 'Salvar e Selecionar'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Etapa 2: Resumo Automático dos Dados Institucionais do Missionário Selecionado */}
+          {selectedMember && (
+            <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 font-bold text-pastoral-cafe">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>{selectedMember.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
+                    Apelido: {selectedMember.display_name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-zinc-600 pl-5">
+                  <span className="flex items-center gap-1">
+                    <Phone className="w-3 h-3 text-emerald-700" />
+                    {selectedMember.phone || 'Sem telefone cadastrado'}
+                  </span>
+                  <span>ID: {selectedMember.id}</span>
+                </div>
+              </div>
+
+              {onNavigateToGovernance && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onNavigateToGovernance();
+                  }}
+                  className="text-[11px] font-semibold text-emerald-800 hover:underline flex items-center gap-1 self-start sm:self-center"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Editar na Governança
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Alerta se o missionário já possui pedido nesta campanha (Seção 7.2) */}
+          {existingOrdersForMember.length > 0 && (
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">
+                    Este missionário já possui {existingOrdersForMember.length}{' '}
+                    {existingOrdersForMember.length === 1 ? 'pedido' : 'pedidos'} nesta campanha.
+                  </p>
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    Deseja adicionar outro pedido para {selectedMember?.display_name} ou visualizar/editar o pedido existente?
+                  </p>
+                </div>
+              </div>
+              {onOpenExistingOrder && (
+                <div className="flex items-center gap-2 pl-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = existingOrdersForMember[0];
+                      onClose();
+                      onOpenExistingOrder(target);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-amber-700 text-white font-semibold text-[11px] hover:bg-amber-800"
+                  >
+                    Abrir Pedido Existente ({existingOrdersForMember[0].items.map((i) => `${i.quantity}x ${i.model} ${i.size}`).join(', ')})
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Items List */}
+        {/* Etapa 3: Camisetas do Pedido */}
         <div>
           <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-2">
-            Camisetas do Pedido
+            2. Camisetas do Pedido
           </label>
           <div className="space-y-2">
             {items.map((item, idx) => (
@@ -194,7 +428,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 key={idx}
                 className="flex flex-wrap items-center gap-2 p-3 bg-zinc-50 border border-zinc-200 rounded-xl"
               >
-                {/* Model */}
                 <div className="flex-1 min-w-[130px]">
                   <label className="block text-[10px] text-zinc-500 font-semibold mb-1">Modelo</label>
                   <select
@@ -207,7 +440,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </select>
                 </div>
 
-                {/* Size */}
                 <div className="w-20">
                   <label className="block text-[10px] text-zinc-500 font-semibold mb-1">Tamanho</label>
                   <select
@@ -223,7 +455,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </select>
                 </div>
 
-                {/* Quantity */}
                 <div className="w-16">
                   <label className="block text-[10px] text-zinc-500 font-semibold mb-1">Qtd</label>
                   <input
@@ -236,7 +467,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   />
                 </div>
 
-                {/* Subtotal */}
                 <div className="w-24 text-right">
                   <label className="block text-[10px] text-zinc-500 font-semibold mb-1">Subtotal</label>
                   <span className="text-xs font-bold text-pastoral-cafe">
@@ -244,7 +474,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </span>
                 </div>
 
-                {/* Remove item button */}
                 {items.length > 1 && (
                   <button
                     type="button"
@@ -268,10 +497,108 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </button>
         </div>
 
+        {/* Etapa 4: Estágio de Produção e Pagamento Inicial Opcional */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
+              Etapa de Produção
+            </label>
+            <select
+              value={productionStatus}
+              onChange={(e) => setProductionStatus(e.target.value as ProductionStatus)}
+              className="w-full px-3 py-2 text-xs font-medium border border-zinc-300 rounded-xl bg-white"
+            >
+              <option value="aguardando_confirmacao">Aguardando confirmação</option>
+              <option value="confirmado">Confirmado</option>
+              <option value="encomendado">Encomendado ao fornecedor</option>
+              <option value="em_producao">Em produção (Confecção)</option>
+              <option value="recebido">Recebido pela equipe</option>
+              <option value="entregue">Entregue ao membro</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
+              Pagamento no Ato / Histórico
+            </label>
+            <button
+              type="button"
+              onClick={() => setHasInitialPayment(!hasInitialPayment)}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-between transition-all ${
+                hasInitialPayment
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                  : 'bg-zinc-50 border-zinc-300 text-zinc-600'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5" />
+                {hasInitialPayment ? 'Registrar pagamento agora' : 'Pendente (Pagar depois)'}
+              </span>
+              <span className="text-[10px] underline">
+                {hasInitialPayment ? 'Remover' : 'Já pagou?'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {hasInitialPayment && (
+          <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2.5">
+            <p className="text-[11px] font-bold text-emerald-900">
+              Dados do Lançamento Financeiro (Vinculado ao Pedido)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-zinc-600 mb-0.5">
+                  Valor Pago (R$)
+                </label>
+                <input
+                  type="text"
+                  value={paymentAmountReais}
+                  onChange={(e) => setPaymentAmountReais(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-zinc-600 mb-0.5">
+                  Forma de Pagamento
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white"
+                >
+                  <option value="pix">Pix</option>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="transferencia">Transferência</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-zinc-600 mb-0.5">
+                  Data do Pagamento
+                </label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white"
+                />
+              </div>
+            </div>
+            <input
+              type="text"
+              placeholder="Observação do pagamento (ex: Comprovante Pix verificado)"
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white"
+            />
+          </div>
+        )}
+
         {/* Notes */}
         <div>
           <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
-            Observações (opcional)
+            Observações do Pedido (opcional)
           </label>
           <textarea
             value={notes}
@@ -285,7 +612,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         {/* Total Summary Footer */}
         <div className="p-3 bg-pastoral-cafe text-white rounded-xl flex items-center justify-between">
           <div>
-            <p className="text-xs text-pastoral-rosa-antigo">Total Previsto</p>
+            <p className="text-xs text-pastoral-rosa-antigo">Total do Pedido</p>
             <p className="font-serif font-bold text-lg text-pastoral-dourado">
               {formatCurrency(totalAmountCents)}
             </p>
@@ -300,14 +627,14 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-600 hover:bg-zinc-100 transition-colors"
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado hover:brightness-105 text-pastoral-profundo transition-all shadow-gold disabled:opacity-50"
+            className="px-5 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado hover:brightness-105 text-pastoral-profundo shadow-gold transition-all"
           >
             {isSubmitting ? 'Salvando...' : 'Confirmar Pedido'}
           </button>
@@ -316,4 +643,3 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     </Modal>
   );
 };
-

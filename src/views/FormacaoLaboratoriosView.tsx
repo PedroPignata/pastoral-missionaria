@@ -73,8 +73,11 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
   const [drawDuration, setDrawDuration] = useState(20);
   const [drawMode, setDrawMode] = useState<'order_and_theme' | 'order_only'>('order_and_theme');
   const [participantSearch, setParticipantSearch] = useState('');
-  const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
-  const [customSpeakers, setCustomSpeakers] = useState<string[]>([]);
+  const [institutionalMembers, setInstitutionalMembers] = useState<
+    { id: string; name: string; display_name?: string; pastoral_role?: string; isCustom?: boolean }[]
+  >([]);
+  const [selectedSpeakerIds, setSelectedSpeakerIds] = useState<string[]>([]);
+  const [customSpeakers, setCustomSpeakers] = useState<{ id: string; name: string; isCustom: true }[]>([]);
   const [customSpeakerInput, setCustomSpeakerInput] = useState('');
   const [latestDraw, setLatestDraw] = useState<any[]>([]);
   const [latestGroups, setLatestGroups] = useState<any[]>([]);
@@ -101,11 +104,25 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
 
   const loadLabsData = async () => {
     try {
-      const [data, draws] = await Promise.all([api.getLabsData(), api.getLabDraws()]);
+      const [data, draws, dirMembers] = await Promise.all([
+        api.getLabsData(),
+        api.getLabDraws(),
+        api.getMembersDirectory().catch(() => api.getPastoralMembers({ status: 'ativo' }).catch(() => [])),
+      ]);
       setThemes(data.themes || []);
       setLabs(data.labs || []);
       setEvaluations(data.evaluations || []);
       setSavedDraws(draws || []);
+      if (Array.isArray(dirMembers) && dirMembers.length > 0) {
+        setInstitutionalMembers(
+          dirMembers.map((pm: any) => ({
+            id: pm.id,
+            name: pm.name,
+            display_name: pm.display_name,
+            pastoral_role: pm.pastoral_role,
+          }))
+        );
+      }
 
       if (draws && draws.length > 0) {
         if (latestDraw.length === 0) {
@@ -178,68 +195,92 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
     }
   };
 
-  // Sorteador participants handlers
-  const allAvailableMembers = useMemo(() => {
-    const unique = new Map<string, string>();
-    for (const m of members) {
-      if (m.name) unique.set(m.name.trim().toLowerCase(), m.name.trim());
-    }
-    for (const c of customSpeakers) {
-      if (c) unique.set(c.trim().toLowerCase(), c.trim());
-    }
-    return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
-  }, [members, customSpeakers]);
+  // Sorteador participants handlers (usando todos os missionários ativos da Governança com IDs estáveis)
+  const allAvailableMembers = useMemo<
+    Array<{
+      id: string;
+      name: string;
+      display_name?: string;
+      pastoral_role?: string;
+      isCustom?: boolean;
+    }>
+  >(() => {
+    const baseList =
+      institutionalMembers.length > 0
+        ? institutionalMembers
+        : members.map((m) => ({
+            id: m.id,
+            name: m.name,
+            display_name: m.display_name,
+            pastoral_role: 'membro',
+            isCustom: false,
+          }));
+
+    const combined = [...baseList, ...customSpeakers];
+    return combined.sort((a, b) => a.name.localeCompare(b.name));
+  }, [institutionalMembers, members, customSpeakers]);
 
   const filteredMembers = useMemo(() => {
     if (!participantSearch.trim()) return allAvailableMembers;
     const term = participantSearch.trim().toLowerCase();
-    return allAvailableMembers.filter((m) => m.toLowerCase().includes(term));
+    return allAvailableMembers.filter(
+      (m) =>
+        m.name.toLowerCase().includes(term) ||
+        (m.display_name || '').toLowerCase().includes(term)
+    );
   }, [allAvailableMembers, participantSearch]);
 
-  const toggleSpeaker = (name: string) => {
-    setSelectedSpeakers((prev) =>
-      prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
+  const toggleSpeaker = (id: string) => {
+    setSelectedSpeakerIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     );
   };
 
   const handleSelectAllFiltered = () => {
-    const newSelected = new Set([...selectedSpeakers, ...filteredMembers]);
-    setSelectedSpeakers(Array.from(newSelected));
+    const newSelected = new Set([...selectedSpeakerIds, ...filteredMembers.map((m) => m.id)]);
+    setSelectedSpeakerIds(Array.from(newSelected));
   };
 
   const handleClearSelected = () => {
-    setSelectedSpeakers([]);
+    setSelectedSpeakerIds([]);
   };
 
   const handleAddCustomSpeaker = () => {
     const clean = customSpeakerInput.trim();
     if (!clean) return;
-    if (!customSpeakers.includes(clean)) {
-      setCustomSpeakers([...customSpeakers, clean]);
+    const customId = `custom_${clean.toLowerCase().replace(/\s+/g, '_')}`;
+    if (!customSpeakers.some((c) => c.id === customId)) {
+      setCustomSpeakers([...customSpeakers, { id: customId, name: clean, isCustom: true }]);
     }
-    if (!selectedSpeakers.includes(clean)) {
-      setSelectedSpeakers([...selectedSpeakers, clean]);
+    if (!selectedSpeakerIds.includes(customId)) {
+      setSelectedSpeakerIds([...selectedSpeakerIds, customId]);
     }
     setCustomSpeakerInput('');
   };
 
-  const handleRemoveCustomSpeaker = (name: string) => {
-    setCustomSpeakers(customSpeakers.filter((c) => c !== name));
-    setSelectedSpeakers(selectedSpeakers.filter((s) => s !== name));
+  const handleRemoveCustomSpeaker = (id: string) => {
+    setCustomSpeakers(customSpeakers.filter((c) => c.id !== id));
+    setSelectedSpeakerIds(selectedSpeakerIds.filter((s) => s !== id));
   };
 
-  // Run Draw (Suporte oficial a 20 participantes e duração padrão de 20 min)
+  const selectedSpeakerNames = useMemo(() => {
+    return selectedSpeakerIds
+      .map((id) => allAvailableMembers.find((m) => m.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
+  }, [selectedSpeakerIds, allAvailableMembers]);
+
+  // Run Draw (Suporte oficial a todos os missionários selecionados e duração padrão de 20 min)
   const handleRunDraw = async (allowRepeat = false) => {
-    if (selectedSpeakers.length === 0) {
+    if (selectedSpeakerNames.length === 0) {
       alert('Selecione ao menos um participante na lista para o sorteio.');
       return;
     }
 
     const activeThemesCount = themes.filter((t) => t.active === 1).length;
-    if (drawMode === 'order_and_theme' && selectedSpeakers.length > activeThemesCount && !allowRepeat) {
+    if (drawMode === 'order_and_theme' && selectedSpeakerNames.length > activeThemesCount && !allowRepeat) {
       setRepeatConfirmationModal({
         open: true,
-        speakersCount: selectedSpeakers.length,
+        speakersCount: selectedSpeakerNames.length,
         themesCount: activeThemesCount,
       });
       return;
@@ -250,7 +291,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
         title: drawTitle,
         lab_date: labDate,
         duration_minutes: drawDuration,
-        speakers: selectedSpeakers,
+        speakers: selectedSpeakerNames,
         draw_mode: drawMode,
         allow_repeat: allowRepeat,
       });
@@ -534,8 +575,8 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                   required
                 />
                 <datalist id="pastoral-speakers-list">
-                  {allAvailableMembers.map((name) => (
-                    <option key={name} value={name} />
+                  {allAvailableMembers.map((m) => (
+                    <option key={m.id} value={m.name} />
                   ))}
                 </datalist>
               </div>
@@ -662,7 +703,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                   Participantes do Laboratório
                 </h3>
                 <p className="text-[11px] text-zinc-500">
-                  {selectedSpeakers.length} selecionado(s)
+                  {selectedSpeakerIds.length} de {allAvailableMembers.length} missionários selecionados
                 </p>
               </div>
               <div className="flex gap-1.5">
@@ -691,7 +732,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                 type="text"
                 value={participantSearch}
                 onChange={(e) => setParticipantSearch(e.target.value)}
-                placeholder="Buscar missionário..."
+                placeholder="Buscar missionário por nome ou apelido..."
                 className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-zinc-200"
               />
             </div>
@@ -702,7 +743,7 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                 type="text"
                 value={customSpeakerInput}
                 onChange={(e) => setCustomSpeakerInput(e.target.value)}
-                placeholder="Adicionar nome avulso..."
+                placeholder="Adicionar convidado / nome avulso..."
                 className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-zinc-200"
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCustomSpeaker())}
               />
@@ -717,23 +758,23 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
 
             {/* Members List with Checkboxes */}
             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-              {filteredMembers.map((name) => {
-                const isSelected = selectedSpeakers.includes(name);
-                const isCustom = customSpeakers.includes(name);
+              {filteredMembers.map((memberItem) => {
+                const isSelected = selectedSpeakerIds.includes(memberItem.id);
+                const isCustom = Boolean(memberItem.isCustom);
 
                 return (
                   <div
-                    key={name}
+                    key={memberItem.id}
                     className={`flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-pastoral-dourado/15 border border-pastoral-dourado/30 font-semibold text-pastoral-profundo'
                         : 'bg-zinc-50 border border-zinc-100 text-zinc-700 hover:bg-zinc-100'
                     }`}
-                    onClick={() => toggleSpeaker(name)}
+                    onClick={() => toggleSpeaker(memberItem.id)}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <div
-                        className={`w-4 h-4 rounded-md flex items-center justify-center border text-white transition-all ${
+                        className={`w-4 h-4 rounded-md flex items-center justify-center border text-white transition-all shrink-0 ${
                           isSelected
                             ? 'bg-pastoral-dourado border-pastoral-dourado'
                             : 'border-zinc-300 bg-white'
@@ -741,7 +782,14 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                       >
                         {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                       </div>
-                      <span>{name}</span>
+                      <span className="truncate">{memberItem.name}</span>
+                      {memberItem.display_name &&
+                        memberItem.display_name !== memberItem.name &&
+                        !memberItem.name.includes(memberItem.display_name) && (
+                          <span className="text-[10px] text-zinc-400 shrink-0">
+                            ({memberItem.display_name})
+                          </span>
+                        )}
                     </div>
 
                     {isCustom && (
@@ -749,9 +797,9 @@ export const FormacaoLaboratoriosView: React.FC<FormacaoLaboratoriosViewProps> =
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleRemoveCustomSpeaker(name);
+                          handleRemoveCustomSpeaker(memberItem.id);
                         }}
-                        className="text-zinc-400 hover:text-rose-600 p-0.5"
+                        className="text-zinc-400 hover:text-rose-600 p-0.5 shrink-0"
                         title="Remover nome avulso"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

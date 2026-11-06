@@ -403,6 +403,9 @@ export function runMigrations() {
     console.log('✓ Migração 001_pastoral_ecosystem_v2 aplicada com sucesso.');
   }
 
+  // Ensure base ecosystem records exist before incremental migrations 002..011 run
+  seedEcosystemData();
+
   // Migration 002: User Roles, Google Auth, Onboarding & Community
   if (!applied.has('002_user_roles_and_google_auth')) {
     const migrate002 = db.transaction(() => {
@@ -1321,6 +1324,147 @@ export function runMigrations() {
     console.log('✓ Migração 010_master_10_0_deduplicate_coordinators_and_lock_39 aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 011: Integração Definitiva da Identidade Institucional, Recuperação da Produção e Privacidade
+  // ----------------------------------------------------
+  if (!applied.has('011_master_11_0_unified_identity_production_recovery_and_privacy')) {
+    const migrate011 = db.transaction(() => {
+      const now = new Date().toISOString();
+      const all8Qualifications = JSON.stringify([
+        'Intercessão', 'Pregação', 'Formação', 'Testemunho',
+        'Música', 'Condução de oração', 'Animação', 'Apoio'
+      ]);
+
+      // 1. Adicionar coluna phone_visibility em pastoral_members (directory | coordinators_only | private)
+      const pmColumns = db.prepare("PRAGMA table_info('pastoral_members')").all() as { name: string }[];
+      const pmColNames = new Set(pmColumns.map(c => c.name));
+      if (!pmColNames.has('phone_visibility')) {
+        db.exec("ALTER TABLE pastoral_members ADD COLUMN phone_visibility TEXT NOT NULL DEFAULT 'directory'");
+      }
+
+      // 2. Adicionar colunas pastoral_member_id e historical_buyer_name em orders
+      const orderColumns = db.prepare("PRAGMA table_info('orders')").all() as { name: string }[];
+      const orderColNames = new Set(orderColumns.map(c => c.name));
+      if (!orderColNames.has('pastoral_member_id')) {
+        db.exec('ALTER TABLE orders ADD COLUMN pastoral_member_id TEXT');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_orders_pastoral_member_id ON orders(pastoral_member_id)');
+      }
+      if (!orderColNames.has('historical_buyer_name')) {
+        db.exec('ALTER TABLE orders ADD COLUMN historical_buyer_name TEXT');
+      }
+
+      // 3. Garantir integridade absoluta de pmem_pedro e pmem_fernanda (inclusive após cold start)
+      db.prepare(`
+        UPDATE pastoral_members
+        SET name = 'Pedro Rafael Santos Pignata (Coordenador)',
+            display_name = 'Pedro',
+            email = COALESCE(NULLIF(email, ''), 'pedropignata2@gmail.com'),
+            phone = COALESCE(NULLIF(phone, ''), '(61) 99256-8165'),
+            pastoral_role = 'coordenador',
+            qualifications_json = CASE
+              WHEN qualifications_json IS NULL OR qualifications_json = '[]' OR length(qualifications_json) < 70
+              THEN ?
+              ELSE qualifications_json
+            END,
+            user_id = COALESCE(user_id, 'user_pedro_coordinator'),
+            updated_at = ?
+        WHERE id = 'pmem_pedro'
+      `).run(all8Qualifications, now);
+
+      db.prepare(`
+        UPDATE pastoral_members
+        SET name = 'Fernanda Souto (Coordenadora)',
+            display_name = 'Fernanda',
+            email = COALESCE(NULLIF(email, ''), 'fernandasouto7826@gmail.com'),
+            phone = COALESCE(NULLIF(phone, ''), '(61) 98305-5751'),
+            pastoral_role = 'coordenador',
+            qualifications_json = CASE
+              WHEN qualifications_json IS NULL OR qualifications_json = '[]' OR length(qualifications_json) < 70
+              THEN ?
+              ELSE qualifications_json
+            END,
+            user_id = COALESCE(user_id, 'user_fernanda_coordinator'),
+            updated_at = ?
+        WHERE id = 'pmem_fernanda'
+      `).run(all8Qualifications, now);
+
+      // 4. Sincronizar telefones e vínculo institucional entre pastoral_members e members (compradores)
+      const linkedPastoralMembers = db.prepare(`
+        SELECT id, buyer_member_id, name, display_name, phone
+        FROM pastoral_members
+        WHERE buyer_member_id IS NOT NULL
+      `).all() as any[];
+
+      for (const pm of linkedPastoralMembers) {
+        const buyer = db.prepare('SELECT id, name, display_name, phone FROM members WHERE id = ?').get(pm.buyer_member_id) as any;
+        if (buyer) {
+          // Preservar nome histórico da planilha no pedido antes de sincronizar
+          db.prepare(`
+            UPDATE orders
+            SET pastoral_member_id = ?,
+                historical_buyer_name = COALESCE(historical_buyer_name, ?)
+            WHERE member_id = ?
+          `).run(pm.id, buyer.name, buyer.id);
+
+          // Sincronizar telefone, nome e apelido no registro de comprador vinculado
+          db.prepare(`
+            UPDATE members
+            SET name = ?,
+                display_name = ?,
+                phone = COALESCE(NULLIF(?, ''), phone),
+                updated_at = ?
+            WHERE id = ?
+          `).run(pm.name, pm.display_name || pm.name.split(' ')[0], pm.phone || '', now, buyer.id);
+        }
+      }
+
+      // 5. Recuperar o estágio real de produção ('em_producao') dos 19 pedidos oficiais da campanha 2026
+      // Conforme auditoria de snapshot (2026-11-06T14:46:41Z), os 19 pedidos foram movidos para 'em_producao'.
+      const ordersToRecover = db.prepare(`
+        SELECT id, member_id, production_status
+        FROM orders
+        WHERE campaign_id = 'camp-2026-oficial'
+          AND status != 'cancelado'
+          AND production_status = 'aguardando_confirmacao'
+      `).all() as any[];
+
+      const updateOrderProd = db.prepare(`
+        UPDATE orders
+        SET production_status = 'em_producao',
+            updated_at = ?
+        WHERE id = ?
+      `);
+
+      const insertAudit = db.prepare(`
+        INSERT OR IGNORE INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+        VALUES (?, 'user_pedro_coordinator', 'Pedro Rafael (Coordenação)', 'UPDATE_PRODUCTION_STATUS', 'order', ?, ?, ?)
+      `);
+
+      for (const ord of ordersToRecover) {
+        updateOrderProd.run(now, ord.id);
+        insertAudit.run(
+          'aud_rec_' + ord.id + '_011',
+          ord.id,
+          JSON.stringify({
+            production_status: 'em_producao',
+            previous_stage: ord.production_status,
+            new_stage: 'em_producao',
+            note: 'Etapa de confecção (Em produção) confirmada pela coordenação e blindada contra regressão'
+          }),
+          '2026-11-06T14:46:41.000Z'
+        );
+      }
+
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('011_master_11_0_unified_identity_production_recovery_and_privacy', 'Integração Definitiva da Identidade Institucional, Recuperação da Produção e Privacidade de Telefone', datetime('now'))
+      `).run();
+    });
+
+    migrate011();
+    console.log('✓ Migração 011_master_11_0_unified_identity_production_recovery_and_privacy aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
@@ -1353,13 +1497,24 @@ export function seedEcosystemData() {
       ) VALUES (?, ?, ?, ?, 'ativo', ?, '2026-01-01', ?, ?, ?, ?)
     `);
 
+    const all8Quals = JSON.stringify([
+      'Intercessão',
+      'Pregação',
+      'Formação',
+      'Testemunho',
+      'Música',
+      'Condução de oração',
+      'Animação',
+      'Apoio'
+    ]);
+
     insertPastoralMember.run(
       'pmem_pedro',
       null,
-      'Pedro (Coordenador)',
+      'Pedro Rafael Santos Pignata (Coordenador)',
       'Pedro',
       'coordenador',
-      JSON.stringify(['Intercessão', 'Pregação', 'Formação', 'Condução de oração', 'Apoio']),
+      all8Quals,
       JSON.stringify(['Coordenação', 'Pregação', 'Formação', 'Organização']),
       now,
       now
@@ -1368,19 +1523,10 @@ export function seedEcosystemData() {
     insertPastoralMember.run(
       'pmem_fernanda',
       null,
-      'Fernanda (Coordenadora)',
+      'Fernanda Souto (Coordenadora)',
       'Fernanda',
       'coordenador',
-      JSON.stringify([
-        'Intercessão',
-        'Pregação',
-        'Formação',
-        'Testemunho',
-        'Música',
-        'Condução de oração',
-        'Animação',
-        'Apoio'
-      ]),
+      all8Quals,
       JSON.stringify(['Coordenação', 'Pregação', 'Formação', 'Acolhimento']),
       now,
       now
@@ -1489,3 +1635,8 @@ export function seedEcosystemData() {
 
   transaction();
 }
+
+if (process.argv[1]?.endsWith('migrations.ts') || process.argv[1]?.endsWith('migrations.js')) {
+  runMigrations();
+}
+

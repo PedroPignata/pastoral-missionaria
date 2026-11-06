@@ -50,6 +50,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   const ecosystemItems = [
     { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
     { key: 'comunidade', label: 'Comunidade Missionária', icon: Users },
+    { key: 'diretorio_membros', label: 'Membros', icon: Users },
     { key: 'calendario_2027', label: 'Calendário 2027 (26 datas)', icon: Calendar },
     { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },
     { key: 'formacao_laboratorios', label: 'Laboratórios & Formação', icon: GraduationCap },
@@ -62,8 +63,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
 
   const tshirtsItems = [
     { key: 'visao_geral', label: 'Visão Geral (Camisetas)', icon: LayoutDashboard },
-    { key: 'pedidos', label: 'Pedidos (Camisetas)', icon: ShoppingBag },
-    { key: 'membros', label: 'Compradores / Membros', icon: Users },
+    { key: 'pedidos', label: 'Pedidos & Compradores', icon: ShoppingBag },
     { key: 'financeiro', label: 'Financeiro (Camisetas)', icon: DollarSign },
     { key: 'producao', label: 'Produção e Entregas', icon: Truck },
     { key: 'relatorios', label: 'Relatórios', icon: FileText },

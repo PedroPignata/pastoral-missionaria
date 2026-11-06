@@ -13,10 +13,15 @@ membersRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Respo
   let query = `
     SELECT
       m.*,
+      pm.id as pastoral_member_id,
+      COALESCE(pm.name, m.name) as name,
+      COALESCE(pm.display_name, m.display_name) as display_name,
+      COALESCE(NULLIF(pm.phone, ''), m.phone) as phone,
       COUNT(DISTINCT o.id) as orders_count,
       COALESCE(SUM(CASE WHEN o.status != 'cancelado' THEN o.total_amount_cents ELSE 0 END), 0) as total_spent_cents,
       COALESCE(SUM(CASE WHEN o.status != 'cancelado' THEN o.balance_cents ELSE 0 END), 0) as total_pending_cents
     FROM members m
+    LEFT JOIN pastoral_members pm ON pm.buyer_member_id = m.id
     LEFT JOIN orders o ON o.member_id = m.id
     WHERE 1=1
   `;
@@ -159,15 +164,22 @@ membersRouter.put('/:id', authenticateToken, requireRole(['admin', 'coordenador'
   );
 
   // Synchronize pastoral_members if linked
-  if (name && name.trim()) {
-    try {
-      db.prepare(`
-        UPDATE pastoral_members
-        SET name = ?, updated_at = ?
-        WHERE buyer_member_id = ?
-      `).run(name.trim(), now, id);
-    } catch {}
-  }
+  try {
+    db.prepare(`
+      UPDATE pastoral_members
+      SET name = COALESCE(?, name),
+          display_name = COALESCE(?, display_name),
+          phone = COALESCE(?, phone),
+          updated_at = ?
+      WHERE buyer_member_id = ?
+    `).run(
+      name?.trim() || null,
+      display_name?.trim() || null,
+      phone !== undefined ? phone.trim() : null,
+      now,
+      id
+    );
+  } catch {}
 
   googleSheetsService.enqueueJob('member', id, 'update', { name });
 
