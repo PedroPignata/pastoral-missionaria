@@ -1076,8 +1076,17 @@ export const GovernancaSucessaoView: React.FC = () => {
                   <div className="text-[11px] text-zinc-500 space-y-1 pt-1 border-t border-zinc-100">
                     {m.phone && (
                       <div className="flex items-center gap-1.5 truncate">
-                        <Phone className="w-3 h-3 text-zinc-400 flex-shrink-0" />
-                        <span className="truncate">{m.phone}</span>
+                        <Phone className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                        <a
+                          href={`https://wa.me/55${m.phone.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate text-zinc-700 hover:text-emerald-700 hover:underline font-medium transition-colors"
+                          title="Abrir no WhatsApp"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {m.phone}
+                        </a>
                       </div>
                     )}
                     {m.email && (
@@ -1608,9 +1617,17 @@ export const GovernancaSucessaoView: React.FC = () => {
                   <span className="font-bold text-emerald-800 uppercase">{viewingMember.status}</span>
                 </div>
                 {viewingMember.phone && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-zinc-500">Telefone / WhatsApp:</span>
-                    <span className="font-semibold text-zinc-700">{viewingMember.phone}</span>
+                    <a
+                      href={`https://wa.me/55${viewingMember.phone.replace(/\D/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline flex items-center gap-1"
+                      title="Abrir no WhatsApp"
+                    >
+                      {viewingMember.phone}
+                    </a>
                   </div>
                 )}
                 {viewingMember.email && (

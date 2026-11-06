@@ -1030,7 +1030,7 @@ platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, re
     params.push(term, term, term, term);
   }
 
-  sql += ' ORDER BY CASE pastoral_role WHEN "coordenador" THEN 1 WHEN "admin" THEN 2 WHEN "delegado" THEN 3 ELSE 4 END, name ASC';
+  sql += " ORDER BY CASE pastoral_role WHEN 'coordenador' THEN 1 WHEN 'admin' THEN 2 WHEN 'delegado' THEN 3 ELSE 4 END, name ASC";
   const rows = db.prepare(sql).all(...params).map((m: any) => ({
     ...m,
     qualifications: JSON.parse(m.qualifications_json || '[]'),

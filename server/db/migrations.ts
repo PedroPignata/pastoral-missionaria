@@ -1012,6 +1012,135 @@ export function runMigrations() {
     console.log('✓ Migração 007_master_7_0_qualifications_contract_and_recovery aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 008: Preservação de Pagamentos de Camisetas e Cadastro Oficial dos 39 Missionários
+  // ----------------------------------------------------
+  if (!applied.has('008_master_8_0_sync_payments_and_register_all_39_pastoral_members')) {
+    const migrate008 = db.transaction(() => {
+      const now = new Date().toISOString();
+
+      // 1. Sincronizar e blindar os 7 pagamentos reais registrados por Pedro na campanha de camisetas
+      const prodPaidMembers = [
+        { name: 'Alfredo', amount: 4500, date: '2026-11-06', id: 'pay_d5d1bbfb8865' },
+        { name: 'Állan', amount: 4500, date: '2026-11-05', id: 'pay_0a9f138f5685' },
+        { name: 'Maria Eduarda Fernandes', amount: 4500, date: '2026-11-04', id: 'pay_27660b8d35b2' },
+        { name: 'Maria Luiza Lima', amount: 4500, date: '2026-11-06', id: 'pay_d4534c58efb9' },
+        { name: 'Maria Luiza Neres', amount: 4500, date: '2026-11-05', id: 'pay_55017014b2bb' },
+        { name: 'Tiago', amount: 4500, date: '2026-11-04', id: 'pay_9a422406c647' },
+        { name: 'Vini', amount: 4500, date: '2026-11-04', id: 'pay_9c67b3f0775b' },
+      ];
+
+      for (const p of prodPaidMembers) {
+        const member = db.prepare('SELECT id FROM members WHERE name = ?').get(p.name) as any;
+        if (member) {
+          const order = db.prepare('SELECT id, total_amount_cents FROM orders WHERE member_id = ?').get(member.id) as any;
+          if (order) {
+            db.prepare(`
+              INSERT OR REPLACE INTO payments (
+                id, order_id, member_id, amount_cents, payment_date, payment_method,
+                recorded_by, notes, is_reversed, reversal_reason, reversed_at, reversed_by,
+                created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, 'pix', 'Pedro Rafael', '', 0, NULL, NULL, NULL, ?, ?)
+            `).run(p.id, order.id, member.id, p.amount, p.date, now, now);
+
+            db.prepare(`
+              UPDATE orders
+              SET paid_amount_cents = ?,
+                  balance_cents = ?,
+                  payment_status = 'pago',
+                  updated_at = ?
+              WHERE id = ?
+            `).run(p.amount, order.total_amount_cents - p.amount, now, order.id);
+          }
+        }
+      }
+
+      // 2. Atualizar dados e números de WhatsApp dos 21 missionários já existentes
+      const existingUpdates = [
+        { id: 'pmem_pedro', name: 'Pedro Rafael Santos Pignata (Coordenador)', display_name: 'Pedro', phone: '(61) 99256-8165' },
+        { id: 'pmem_fernanda', name: 'Fernanda Souto (Coordenadora)', display_name: 'Fernanda', phone: '(61) 98305-5751' },
+        { id: 'pmem_mem_3a5d8b2854f7', name: 'Alfredo', display_name: 'Alfredo', phone: '(61) 99847-4821' },
+        { id: 'pmem_mem_168e4d89c0d7', name: 'Állan Fross', display_name: 'Állan', phone: '(61) 98188-8901' },
+        { id: 'pmem_mem_718a8fc7413a', name: 'Erick Kilbert', display_name: 'Erick', phone: '(61) 99523-5887' },
+        { id: 'pmem_mem_5b8f3d626749', name: 'Jamilly', display_name: 'Jamilly', phone: '(61) 99623-6153' },
+        { id: 'pmem_mem_cd7f61cc211e', name: 'Júlia Viana', display_name: 'Júlia', phone: '(61) 99931-6382' },
+        { id: 'pmem_mem_255524b003e3', name: 'Laysa', display_name: 'Laysa', phone: '(61) 99292-9981' },
+        { id: 'pmem_mem_e8ca36ae2233', name: 'Letícia Ingrid', display_name: 'Letícia', phone: '(61) 99254-2925' },
+        { id: 'pmem_mem_03d218edc79f', name: 'Lyvia Maria', display_name: 'Lyvia', phone: '(61) 99974-4803' },
+        { id: 'pmem_mem_e026bf750415', name: 'Manuella', display_name: 'Manuella', phone: '(61) 99197-2286' },
+        { id: 'pmem_mem_22130dccbf2c', name: 'Maria Eduarda Fernandes', display_name: 'Duda Fernandes', phone: '(61) 99554-3396' },
+        { id: 'pmem_mem_723733f98bb6', name: 'Maria Eduarda Soares', display_name: 'Duda Soares', phone: '(61) 98302-6142' },
+        { id: 'pmem_mem_83ce887a76ef', name: 'Maria Júlia', display_name: 'Maria Júlia', phone: '(61) 99417-0991' },
+        { id: 'pmem_mem_d1b16e0ebcde', name: 'Maria Luiza Lima', display_name: 'Maria Luiza', phone: '(61) 98208-9083' },
+        { id: 'pmem_mem_aeedddfde4d8', name: 'Maria Luiza Neres', display_name: 'Malu Neres', phone: '(61) 99931-1322' },
+        { id: 'pmem_mem_0a4d580ce11f', name: 'Mariane', display_name: 'Mariane', phone: '(61) 98483-4684' },
+        { id: 'pmem_mem_c5ded13f55d7', name: 'Saulo', display_name: 'Saulo', phone: '(61) 99657-8844' },
+        { id: 'pmem_mem_2a2e78c53bf9', name: 'Tiago', display_name: 'Tiago', phone: '(61) 99852-6665' },
+        { id: 'pmem_mem_37c8ca212b5b', name: 'Victor', display_name: 'Victor', phone: '(61) 99223-6379' },
+        { id: 'pmem_mem_aff2b7da59f2', name: 'Vinícius', display_name: 'Vini', phone: '(61) 98427-3060' },
+      ];
+
+      for (const u of existingUpdates) {
+        db.prepare(`
+          UPDATE pastoral_members
+          SET name = ?, display_name = ?, phone = ?, updated_at = ?
+          WHERE id = ?
+        `).run(u.name, u.display_name, u.phone, now, u.id);
+      }
+
+      // 3. Cadastrar os 18 novos missionários no cadastro oficial
+      const newPastoralMembers = [
+        { id: 'pmem_angelica_angel', name: 'Angélica (Angel)', display_name: 'Angel', phone: '(61) 99837-2088' },
+        { id: 'pmem_joao_miguel', name: 'João Miguel', display_name: 'João Miguel', phone: '(61) 99129-8349' },
+        { id: 'pmem_daniel', name: 'Daniel', display_name: 'Daniel', phone: '(61) 99511-3729' },
+        { id: 'pmem_gabriel_the_baios', name: 'Gabriel (The Baios)', display_name: 'Gabriel', phone: '(61) 98369-9150' },
+        { id: 'pmem_iris_maria', name: 'Iris Maria', display_name: 'Iris', phone: '(61) 99522-9063' },
+        { id: 'pmem_jonas_emanuell', name: 'Jonas Emanuell', display_name: 'Jonas', phone: '(61) 99635-2396' },
+        { id: 'pmem_kayla_lino', name: 'Kayla Lino', display_name: 'Kayla', phone: '(61) 98629-7236' },
+        { id: 'pmem_samuel_aranha', name: 'Samuel Aranha', display_name: 'Samuel', phone: '(61) 99637-9942' },
+        { id: 'pmem_ludmilla', name: 'Ludmilla', display_name: 'Ludmilla', phone: '(61) 98503-6174' },
+        { id: 'pmem_miriam', name: 'Miriam', display_name: 'Miriam', phone: '(61) 99249-7904' },
+        { id: 'pmem_joao_gabriel', name: 'JoãoGabriel', display_name: 'João Gabriel', phone: '(61) 99270-5900' },
+        { id: 'pmem_pedro_henrique', name: 'Pedro Henrique', display_name: 'Pedro Henrique', phone: '(61) 99338-6657' },
+        { id: 'pmem_raquel', name: 'Raquel', display_name: 'Raquel', phone: '(61) 99584-6990' },
+        { id: 'pmem_rayane', name: 'Rayane', display_name: 'Rayane', phone: '(61) 99881-7393' },
+        { id: 'pmem_rodrigo_de_oliveira', name: 'Rodrigo De Oliveira', display_name: 'Rodrigo', phone: '(61) 99624-4351' },
+        { id: 'pmem_wellington_santos', name: 'Wellington Santos', display_name: 'Wellington', phone: '(61) 98537-8862' },
+        { id: 'pmem_jose_vitor_ze', name: 'José Vitor (Zé)', display_name: 'José Vitor (Zé)', phone: '(61) 99594-4114' },
+        { id: 'pmem_victor_cardoso', name: 'Victor Cardoso', display_name: 'Victor Cardoso', phone: '(61) 98176-1979' },
+      ];
+
+      const insertNewMember = db.prepare(`
+        INSERT INTO pastoral_members (
+          id, name, display_name, email, phone, photo_url, status, pastoral_role,
+          joined_at, qualifications_json, skills_json, availability_json, welcome_checklist_json,
+          created_at, updated_at, birth_day, birth_month, birth_year, birthday_visibility, notes
+        ) VALUES (
+          ?, ?, ?, NULL, ?, NULL, 'ativo', 'membro',
+          ?, '["Intercessão"]', '[]', '{}', '{}',
+          ?, ?, NULL, NULL, NULL, 'members', NULL
+        ) ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          display_name = excluded.display_name,
+          phone = excluded.phone,
+          updated_at = excluded.updated_at
+      `);
+
+      for (const m of newPastoralMembers) {
+        insertNewMember.run(m.id, m.name, m.display_name, m.phone, now.split('T')[0], now, now);
+      }
+
+      // 4. Registrar migração 008
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('008_master_8_0_sync_payments_and_register_all_39_pastoral_members', 'Preservação de Pagamentos de Camisetas e Cadastro Oficial dos 39 Missionários com WhatsApp', datetime('now'))
+      `).run();
+    });
+
+    migrate008();
+    console.log('✓ Migração 008_master_8_0_sync_payments_and_register_all_39_pastoral_members aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
