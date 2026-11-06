@@ -1141,6 +1141,132 @@ export function runMigrations() {
     console.log('✓ Migração 008_master_8_0_sync_payments_and_register_all_39_pastoral_members aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 009: Sincronização Universal e Garantia dos 39 Missionários Vinculados
+  // ----------------------------------------------------
+  if (!applied.has('009_master_9_0_universal_sync_39_pastoral_members')) {
+    const migrate009 = db.transaction(() => {
+      const now = new Date().toISOString();
+      const all8Qualifications = JSON.stringify([
+        'Intercessão', 'Pregação', 'Formação', 'Testemunho',
+        'Música', 'Condução de oração', 'Animação', 'Apoio'
+      ]);
+
+      const officialList = [
+        { name: 'Pedro Henrique', display_name: 'Pedro Henrique', phone: '(61) 99338-6657', role: 'membro', searchKeys: ['Pedro Henrique%'] },
+        { name: 'Pedro Rafael Santos Pignata (Coordenador)', display_name: 'Pedro', phone: '(61) 99256-8165', role: 'coordenador', quals: all8Qualifications, searchKeys: ['Pedro Rafael%', 'Pedro (Coordenador)%'] },
+        { name: 'Fernanda Souto (Coordenadora)', display_name: 'Fernanda', phone: '(61) 98305-5751', role: 'coordenador', quals: all8Qualifications, searchKeys: ['Fernanda%'] },
+        { name: 'Tiago', display_name: 'Tiago', phone: '(61) 99852-6665', role: 'membro', quals: all8Qualifications, searchKeys: ['Tiago%'] },
+        { name: 'Victor Cardoso', display_name: 'Victor Cardoso', phone: '(61) 98176-1979', role: 'membro', searchKeys: ['Victor Cardoso%'] },
+        { name: 'Victor', display_name: 'Victor', phone: '(61) 99223-6379', role: 'membro', searchKeys: ['Victor'] },
+        { name: 'Alfredo', display_name: 'Alfredo', phone: '(61) 99847-4821', role: 'membro', searchKeys: ['Alfredo%'] },
+        { name: 'Állan Fross', display_name: 'Állan', phone: '(61) 98188-8901', role: 'membro', searchKeys: ['Állan%', 'Allan%'] },
+        { name: 'Angélica (Angel)', display_name: 'Angel', phone: '(61) 99837-2088', role: 'membro', searchKeys: ['Angélica%', 'Angelica%', '%Angel%'] },
+        { name: 'João Miguel', display_name: 'João Miguel', phone: '(61) 99129-8349', role: 'membro', searchKeys: ['João Miguel%', 'Joao Miguel%'] },
+        { name: 'Daniel', display_name: 'Daniel', phone: '(61) 99511-3729', role: 'membro', searchKeys: ['Daniel%'] },
+        { name: 'Maria Eduarda Fernandes', display_name: 'Duda Fernandes', phone: '(61) 99554-3396', role: 'membro', searchKeys: ['Maria Eduarda Fernandes%', '%Duda Fernandes%'] },
+        { name: 'Erick Kilbert', display_name: 'Erick', phone: '(61) 99523-5887', role: 'membro', searchKeys: ['Erick%'] },
+        { name: 'Gabriel (The Baios)', display_name: 'Gabriel', phone: '(61) 98369-9150', role: 'membro', searchKeys: ['Gabriel%', '%Baios%'] },
+        { name: 'Iris Maria', display_name: 'Iris', phone: '(61) 99522-9063', role: 'membro', searchKeys: ['Iris%'] },
+        { name: 'Jamilly', display_name: 'Jamilly', phone: '(61) 99623-6153', role: 'membro', searchKeys: ['Jamilly%'] },
+        { name: 'Jonas Emanuell', display_name: 'Jonas', phone: '(61) 99635-2396', role: 'membro', searchKeys: ['Jonas%'] },
+        { name: 'Júlia Viana', display_name: 'Júlia', phone: '(61) 99931-6382', role: 'membro', searchKeys: ['Júlia%', 'Julia%'] },
+        { name: 'Kayla Lino', display_name: 'Kayla', phone: '(61) 98629-7236', role: 'membro', searchKeys: ['Kayla%'] },
+        { name: 'Samuel Aranha', display_name: 'Samuel', phone: '(61) 99637-9942', role: 'membro', searchKeys: ['Samuel%'] },
+        { name: 'Laysa', display_name: 'Laysa', phone: '(61) 99292-9981', role: 'membro', searchKeys: ['Laysa%'] },
+        { name: 'Letícia Ingrid', display_name: 'Letícia', phone: '(61) 99254-2925', role: 'membro', searchKeys: ['Letícia%', 'Leticia%'] },
+        { name: 'Ludmilla', display_name: 'Ludmilla', phone: '(61) 98503-6174', role: 'membro', searchKeys: ['Ludmilla%'] },
+        { name: 'Lyvia Maria', display_name: 'Lyvia', phone: '(61) 99974-4803', role: 'membro', searchKeys: ['Lyvia%'] },
+        { name: 'Maria Luiza Neres', display_name: 'Malu Neres', phone: '(61) 99931-1322', role: 'membro', searchKeys: ['Maria Luiza Neres%', '%Malu Neres%'] },
+        { name: 'Manuella', display_name: 'Manuella', phone: '(61) 99197-2286', role: 'membro', searchKeys: ['Manuella%'] },
+        { name: 'Maria Eduarda Soares', display_name: 'Duda Soares', phone: '(61) 98302-6142', role: 'membro', searchKeys: ['Maria Eduarda Soares%', '%Duda Soares%'] },
+        { name: 'Maria Júlia', display_name: 'Maria Júlia', phone: '(61) 99417-0991', role: 'membro', searchKeys: ['Maria Júlia%', 'Maria Julia%'] },
+        { name: 'Maria Luiza Lima', display_name: 'Maria Luiza', phone: '(61) 98208-9083', role: 'membro', searchKeys: ['Maria Luiza Lima%'] },
+        { name: 'Mariane', display_name: 'Mariane', phone: '(61) 98483-4684', role: 'membro', searchKeys: ['Mariane%'] },
+        { name: 'Miriam', display_name: 'Miriam', phone: '(61) 99249-7904', role: 'membro', searchKeys: ['Miriam%'] },
+        { name: 'JoãoGabriel', display_name: 'João Gabriel', phone: '(61) 99270-5900', role: 'membro', searchKeys: ['JoãoGabriel%', 'JoaoGabriel%', 'João Gabriel%', 'Joao Gabriel%'] },
+        { name: 'Raquel', display_name: 'Raquel', phone: '(61) 99584-6990', role: 'membro', searchKeys: ['Raquel%'] },
+        { name: 'Rayane', display_name: 'Rayane', phone: '(61) 99881-7393', role: 'membro', searchKeys: ['Rayane%'] },
+        { name: 'Rodrigo De Oliveira', display_name: 'Rodrigo', phone: '(61) 99624-4351', role: 'membro', searchKeys: ['Rodrigo%'] },
+        { name: 'Saulo', display_name: 'Saulo', phone: '(61) 99657-8844', role: 'membro', searchKeys: ['Saulo%'] },
+        { name: 'Vinícius', display_name: 'Vini', phone: '(61) 98427-3060', role: 'membro', searchKeys: ['Vinícius%', 'Vinicius%', 'Vini%'] },
+        { name: 'Wellington Santos', display_name: 'Wellington', phone: '(61) 98537-8862', role: 'membro', searchKeys: ['Wellington%'] },
+        { name: 'José Vitor (Zé)', display_name: 'José Vitor (Zé)', phone: '(61) 99594-4114', role: 'membro', searchKeys: ['José Vitor%', 'Jose Vitor%'] },
+      ];
+
+      for (const item of officialList) {
+        let found = null as any;
+        for (const k of item.searchKeys) {
+          found = db.prepare('SELECT id, buyer_member_id, qualifications_json FROM pastoral_members WHERE name LIKE ? OR display_name LIKE ?').get(k, k);
+          if (found) break;
+        }
+
+        // Buscar correspondência na tabela members (compradores de camisetas)
+        let buyer = null as any;
+        for (const k of item.searchKeys) {
+          buyer = db.prepare('SELECT id, name FROM members WHERE name LIKE ? OR display_name LIKE ?').get(k, k);
+          if (buyer) break;
+        }
+
+        if (found) {
+          db.prepare(`
+            UPDATE pastoral_members
+            SET name = ?,
+                display_name = ?,
+                phone = ?,
+                pastoral_role = COALESCE(?, pastoral_role),
+                qualifications_json = CASE WHEN ? IS NOT NULL THEN ? ELSE qualifications_json END,
+                buyer_member_id = COALESCE(buyer_member_id, ?),
+                updated_at = ?
+            WHERE id = ?
+          `).run(
+            item.name,
+            item.display_name,
+            item.phone,
+            item.role || null,
+            item.quals || null,
+            item.quals || null,
+            buyer ? buyer.id : null,
+            now,
+            found.id
+          );
+        } else {
+          const newId = buyer ? `pmem_${buyer.id}` : `pmem_${item.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 30)}`;
+          db.prepare(`
+            INSERT INTO pastoral_members (
+              id, buyer_member_id, name, display_name, phone, status, pastoral_role,
+              joined_at, qualifications_json, skills_json, availability_json, welcome_checklist_json,
+              created_at, updated_at, birth_day, birth_month, birth_year, birthday_visibility, notes
+            ) VALUES (
+              ?, ?, ?, ?, ?, 'ativo', ?,
+              '2026-01-01', ?, '[]', '{}', '{}',
+              ?, ?, NULL, NULL, NULL, 'members', NULL
+            )
+          `).run(
+            newId,
+            buyer ? buyer.id : null,
+            item.name,
+            item.display_name,
+            item.phone,
+            item.role || 'membro',
+            item.quals || '["Intercessão"]',
+            now,
+            now
+          );
+        }
+      }
+
+      // Registrar migração 009
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('009_master_9_0_universal_sync_39_pastoral_members', 'Garantia Universal dos 39 Missionários Vinculados com WhatsApp e Habilitações', datetime('now'))
+      `).run();
+    });
+
+    migrate009();
+    console.log('✓ Migração 009_master_9_0_universal_sync_39_pastoral_members aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
