@@ -41,12 +41,28 @@ campaignsRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador'
 
   const campaignId = 'camp_' + crypto.randomBytes(6).toString('hex');
   const now = new Date().toISOString();
-  const price = default_price_cents || 4500;
+  const parsedPrice = default_price_cents !== undefined ? Math.round(Number(default_price_cents)) : 4500;
+  if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+    return res.status(400).json({ error: 'O preço padrão da campanha deve ser um valor positivo válido.' });
+  }
+  const price = parsedPrice;
 
   db.prepare(`
     INSERT INTO campaigns (id, name, description, start_date, end_date, default_price_cents, status, is_active, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 'aberta', 0, ?, ?)
   `).run(campaignId, name.trim(), description || '', start_date || null, end_date || null, price, now, now);
+
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'CREATE_CAMPAIGN', 'campaign', ?, ?, ?)
+  `).run(
+    crypto.randomUUID(),
+    req.user?.id,
+    req.user?.name || 'Coordenação',
+    campaignId,
+    JSON.stringify({ name: name.trim(), default_price_cents: price }),
+    now
+  );
 
   googleSheetsService.enqueueJob('campaign', campaignId, 'create', { name });
 
@@ -63,25 +79,55 @@ campaignsRouter.put('/:id', authenticateToken, requireRole(['admin', 'coordenado
     return res.status(404).json({ error: 'Campanha não encontrada.' });
   }
 
+  let nextPriceCents = existing.default_price_cents;
+  if (default_price_cents !== undefined && default_price_cents !== null) {
+    const parsed = Math.round(Number(default_price_cents));
+    if (!Number.isFinite(parsed) || parsed >= 1000000 || parsed <= 0) {
+      return res.status(400).json({ error: 'O preço padrão da campanha deve ser maior que zero.' });
+    }
+    nextPriceCents = parsed;
+  }
+
   const now = new Date().toISOString();
+  const nextName = name?.trim() || existing.name;
+  const nextStatus = status || existing.status;
+
   db.prepare(`
     UPDATE campaigns
     SET name = ?, description = ?, start_date = ?, end_date = ?, default_price_cents = ?, status = ?, updated_at = ?
     WHERE id = ?
   `).run(
-    name?.trim() || existing.name,
+    nextName,
     description !== undefined ? description : existing.description,
     start_date !== undefined ? start_date : existing.start_date,
     end_date !== undefined ? end_date : existing.end_date,
-    default_price_cents !== undefined ? default_price_cents : existing.default_price_cents,
-    status || existing.status,
+    nextPriceCents,
+    nextStatus,
     now,
     id
   );
 
-  googleSheetsService.enqueueJob('campaign', id, 'update', { name });
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+    VALUES (?, ?, ?, 'UPDATE_CAMPAIGN', 'campaign', ?, ?, ?)
+  `).run(
+    crypto.randomUUID(),
+    req.user?.id,
+    req.user?.name || 'Coordenação',
+    id,
+    JSON.stringify({
+      name: nextName,
+      previous_price_cents: existing.default_price_cents,
+      new_price_cents: nextPriceCents,
+      status: nextStatus,
+    }),
+    now
+  );
 
-  return res.json({ message: 'Campanha atualizada com sucesso.' });
+  googleSheetsService.enqueueJob('campaign', id, 'update', { name: nextName });
+
+  const updated = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id);
+  return res.json({ message: 'Campanha atualizada com sucesso.', campaign: updated });
 });
 
 // POST /api/campaigns/:id/activate

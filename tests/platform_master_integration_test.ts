@@ -380,14 +380,16 @@ async function runTests() {
     assert.strictEqual(memberCreateOrderRes.status, 403);
     console.log('✓ [25/26] Membro comum bloqueado (403) ao tentar criar/editar pedidos.');
 
-    // 26. Coordenadores (Pedro e Fernanda) possuem todas as 8 habilitações e telefones preservados
+    // 26. Coordenadores (Pedro com 7 funções sem Música, e Fernanda com 8 funções) e telefones preservados
     const pedro = db.prepare("SELECT * FROM pastoral_members WHERE id = 'pmem_pedro'").get() as any;
     const fernanda = db.prepare("SELECT * FROM pastoral_members WHERE id = 'pmem_fernanda'").get() as any;
     assert.strictEqual(pedro.phone, '(61) 99256-8165');
     assert.strictEqual(fernanda.phone, '(61) 98305-5751');
-    assert.strictEqual(JSON.parse(pedro.qualifications_json).length, 8);
+    const pedroQuals = JSON.parse(pedro.qualifications_json);
+    assert.strictEqual(pedroQuals.length, 7);
+    assert(!pedroQuals.includes('Música'), 'Pedro removeu manualmente Música às 13:01');
     assert.strictEqual(JSON.parse(fernanda.qualifications_json).length, 8);
-    console.log('✓ [26/26] Coordenadores Pedro e Fernanda preservam todas as 8 habilitações e telefones oficiais.');
+    console.log('✓ [26/26] Coordenadores Pedro (7 funções, sem Música) e Fernanda (8 funções) preservam suas habilitações e telefones oficiais.');
 
     console.log('===================================================================');
     console.log('✅ TODOS OS 26 CENÁRIOS DE INTEGRAÇÃO PASSARAM COM 100% DE SUCESSO!');

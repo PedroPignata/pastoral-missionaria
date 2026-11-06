@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Plus, RefreshCw, ExternalLink, Calendar, Cross, ShieldCheck } from 'lucide-react';
+import { Menu, RefreshCw, ExternalLink, Cross } from 'lucide-react';
 import { Campaign, GoogleSheetsConfig } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import type { NavItemKey } from './Sidebar';
@@ -40,21 +40,20 @@ const VIEW_TITLES: Record<NavItemKey, { title: string; subtitle?: string }> = {
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   onToggleMobileMenu,
-  activeCampaign,
   sheetsConfig,
-  onOpenNewOrder,
   onSyncNow,
   isSyncing,
 }) => {
-  const { user, canEdit } = useAuth();
+  const { user } = useAuth();
 
   const isConnected = sheetsConfig?.status === 'conectado';
+  const hasSheetsError = sheetsConfig?.status === 'erro';
   const sheetUrl = sheetsConfig?.spreadsheet_id
     ? `https://docs.google.com/spreadsheets/d/${sheetsConfig.spreadsheet_id}/edit`
     : '';
 
   const viewInfo = VIEW_TITLES[currentView] || { title: 'Pastoral Missionária' };
-  const isTshirtModule = currentView === 'pedidos' || currentView === 'planilhas' || currentView === 'visao_geral';
+  const showSheetsStatus = currentView === 'planilhas' || hasSheetsError;
 
   return (
     <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-pastoral-cafe/10 shadow-xs px-4 lg:px-8 py-3 flex items-center justify-between">
@@ -83,54 +82,46 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Contextual actions strictly for T-shirt module, User profile badge */}
+      {/* Right: Contextual actions & User profile badge */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Only show Sheets & New Order on T-shirt management views */}
-        {isTshirtModule && (
-          <>
-            {/* Google Sheets Sync Pill */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={onSyncNow}
-                disabled={isSyncing}
-                title="Sincronizar com Google Planilhas agora"
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                  isConnected
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                    : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                }`}
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-pastoral-dourado' : ''}`} />
-                <span className="hidden md:inline">
-                  {isSyncing ? 'Sincronizando...' : isConnected ? 'Planilha Conectada' : 'Planilha Pendente'}
-                </span>
-              </button>
+        {showSheetsStatus && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onSyncNow}
+              disabled={isSyncing}
+              title="Sincronizar com Google Planilhas agora"
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                isConnected
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : hasSheetsError
+                  ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                  : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-pastoral-dourado' : ''}`} />
+              <span className="hidden md:inline">
+                {isSyncing
+                  ? 'Sincronizando...'
+                  : isConnected
+                  ? 'Planilha Conectada'
+                  : hasSheetsError
+                  ? 'Erro na Planilha'
+                  : 'Sincronizar Planilha'}
+              </span>
+            </button>
 
-              {sheetUrl && (
-                <a
-                  href={sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Abrir Google Planilhas no navegador"
-                  className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 border border-emerald-200 transition-colors"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              )}
-            </div>
-
-            {/* Quick New Order Button (only on Orders view and for users with edit permission) */}
-            {canEdit && currentView === 'pedidos' && (
-              <button
-                onClick={onOpenNewOrder}
-                className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm font-semibold bg-gradient-to-r from-pastoral-dourado to-pastoral-dourado-claro text-pastoral-profundo hover:brightness-105 shadow-gold transition-all active:scale-95"
+            {sheetUrl && (
+              <a
+                href={sheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Abrir Google Planilhas no navegador"
+                className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 border border-emerald-200 transition-colors"
               >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Novo Pedido</span>
-                <span className="sm:hidden">Novo</span>
-              </button>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             )}
-          </>
+          </div>
         )}
 
         {/* User avatar & role pill */}
@@ -159,4 +150,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

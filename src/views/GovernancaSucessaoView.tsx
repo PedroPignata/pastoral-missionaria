@@ -53,10 +53,23 @@ export const GovernancaSucessaoView: React.FC = () => {
 
   // Member management state
   const [memberSearch, setMemberSearch] = useState('');
-  const [memberFilterTab, setMemberFilterTab] = useState<'todos' | 'ativos' | 'coordenadores' | 'membros' | 'inativos'>('todos');
+  const [memberFilterTab, setMemberFilterTab] = useState<'todos' | 'coordenadores' | 'membros'>('todos');
+  const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [isNewMemberModalOpen, setIsNewMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<any | null>(null);
   const [viewingMember, setViewingMember] = useState<any | null>(null);
+
+  // Bulk Qualifications Manager (Seção 5)
+  const [isBulkQualsModalOpen, setIsBulkQualsModalOpen] = useState(false);
+  const [bulkSelectedMemberIds, setBulkSelectedMemberIds] = useState<string[]>([]);
+  const [bulkSearch, setBulkSearch] = useState('');
+  const [bulkMode, setBulkMode] = useState<'remove' | 'set' | 'add'>('remove');
+  const [bulkTargetQuals, setBulkTargetQuals] = useState<string[]>([]);
+  const [bulkPreserveMusic, setBulkPreserveMusic] = useState<boolean>(true);
+  const [showBulkPreview, setShowBulkPreview] = useState<boolean>(false);
+  const [isApplyingBulk, setIsApplyingBulk] = useState<boolean>(false);
+  const [bulkHistory, setBulkHistory] = useState<any[]>([]);
+  const [showBulkHistoryPanel, setShowBulkHistoryPanel] = useState<boolean>(false);
 
   // Form states for create/edit
   const [formName, setFormName] = useState('');
@@ -383,15 +396,159 @@ export const GovernancaSucessaoView: React.FC = () => {
     const newStatus = member.status === 'ativo' ? 'inativo' : 'ativo';
     try {
       await api.setPastoralMemberStatus(member.id, newStatus);
-      showMessage(`Status de ${member.name} alterado para "${newStatus}"!`);
+      showMessage(
+        newStatus === 'inativo'
+          ? `${member.name} foi arquivado(a) da lista atual (histórico preservado).`
+          : `${member.name} foi restaurado(a) para a lista de membros atuais!`
+      );
       loadGovernance();
     } catch (err: any) {
       showMessage(err.message || 'Falha ao alterar status', true);
     }
   };
 
+  const handleOpenBulkQualsModal = async () => {
+    setBulkSelectedMemberIds([]);
+    setBulkSearch('');
+    setBulkMode('remove');
+    setBulkTargetQuals([]);
+    setBulkPreserveMusic(true);
+    setShowBulkPreview(false);
+    setShowBulkHistoryPanel(false);
+    setIsBulkQualsModalOpen(true);
+    try {
+      const hist = await api.getBulkQualificationsHistory();
+      setBulkHistory(hist || []);
+    } catch {
+      setBulkHistory([]);
+    }
+  };
+
+  const bulkFilteredMembers = useMemo(() => {
+    const activeList = pastoralMembers.filter((m) => m.status === 'ativo');
+    if (!bulkSearch.trim()) return activeList;
+    const term = bulkSearch.trim().toLowerCase();
+    return activeList.filter(
+      (m) =>
+        (m.name || '').toLowerCase().includes(term) ||
+        (m.display_name || '').toLowerCase().includes(term)
+    );
+  }, [pastoralMembers, bulkSearch]);
+
+  const bulkPreviewData = useMemo(() => {
+    const selectedMembers = pastoralMembers.filter((m) => bulkSelectedMemberIds.includes(m.id));
+    const items = selectedMembers.map((m) => {
+      const currentQuals: string[] = Array.isArray(m.qualifications) ? m.qualifications : [];
+      const hadMusic = currentQuals.includes('Música');
+      let nextQuals: string[] = [];
+
+      if (bulkMode === 'remove') {
+        nextQuals = currentQuals.filter((q) => !bulkTargetQuals.includes(q));
+      } else if (bulkMode === 'add') {
+        nextQuals = Array.from(new Set([...currentQuals, ...bulkTargetQuals]));
+      } else {
+        nextQuals = [...bulkTargetQuals];
+      }
+
+      if (bulkPreserveMusic && hadMusic && !nextQuals.includes('Música')) {
+        nextQuals.push('Música');
+      }
+
+      const removed = currentQuals.filter((q) => !nextQuals.includes(q));
+      const preserved = currentQuals.filter((q) => nextQuals.includes(q));
+      const added = nextQuals.filter((q) => !currentQuals.includes(q));
+      const changed =
+        removed.length > 0 || added.length > 0 || currentQuals.length !== nextQuals.length;
+
+      return {
+        id: m.id,
+        name: m.name,
+        pastoral_role: m.pastoral_role,
+        before: currentQuals,
+        after: nextQuals,
+        removed,
+        preserved,
+        added,
+        changed,
+        hasConflictWarning:
+          m.pastoral_role === 'coordenador' && nextQuals.length === 0,
+      };
+    });
+
+    const modifiedItems = items.filter((i) => i.changed);
+    const zeroQualsCount = items.filter((i) => i.after.length === 0).length;
+    const musicRemainingCount = items.filter((i) => i.after.includes('Música')).length;
+    const conflicts = items.filter((i) => i.hasConflictWarning);
+
+    return {
+      totalSelected: items.length,
+      modifiedCount: modifiedItems.length,
+      zeroQualsCount,
+      musicRemainingCount,
+      conflicts,
+      items,
+    };
+  }, [pastoralMembers, bulkSelectedMemberIds, bulkMode, bulkTargetQuals, bulkPreserveMusic]);
+
+  const handleExecuteBulkQualifications = async () => {
+    if (bulkSelectedMemberIds.length === 0) return;
+    setIsApplyingBulk(true);
+    try {
+      const res = await api.bulkUpdateMemberQualifications({
+        memberIds: bulkSelectedMemberIds,
+        mode: bulkMode,
+        qualifications: bulkTargetQuals,
+        preserveMusic: bulkPreserveMusic,
+      });
+
+      const updatedMap = new Map(
+        (res.updatedMembers || []).map((um: any) => [um.id, um.qualifications || []])
+      );
+      setPastoralMembers((prev) =>
+        prev.map((m) =>
+          updatedMap.has(m.id) ? { ...m, qualifications: updatedMap.get(m.id) } : m
+        )
+      );
+
+      showMessage(res.message || 'Habilitações atualizadas em lote com sucesso!');
+      setIsBulkQualsModalOpen(false);
+      await loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Erro ao aplicar habilitações em lote.', true);
+    } finally {
+      setIsApplyingBulk(false);
+    }
+  };
+
+  const handleRevertBulkOperation = async (auditId: string) => {
+    if (!window.confirm('Deseja realmente reverter esta operação em lote e restaurar as habilitações anteriores?')) {
+      return;
+    }
+    setIsApplyingBulk(true);
+    try {
+      const res = await api.revertBulkQualifications(auditId);
+      showMessage(res.message || 'Operação em lote revertida com sucesso!');
+      setIsBulkQualsModalOpen(false);
+      await loadGovernance();
+    } catch (err: any) {
+      showMessage(err.message || 'Falha ao reverter operação em lote.', true);
+    } finally {
+      setIsApplyingBulk(false);
+    }
+  };
+
+  const activePastoralMembers = useMemo(
+    () => pastoralMembers.filter((m) => m.status === 'ativo'),
+    [pastoralMembers]
+  );
+
+  const archivedPastoralMembers = useMemo(
+    () => pastoralMembers.filter((m) => m.status !== 'ativo'),
+    [pastoralMembers]
+  );
+
   const filteredPastoralMembers = useMemo(() => {
-    return pastoralMembers.filter((m) => {
+    return activePastoralMembers.filter((m) => {
       // Search filter (handles Thiago / Tiago)
       if (memberSearch.trim()) {
         const q = memberSearch.trim().toLowerCase();
@@ -415,14 +572,12 @@ export const GovernancaSucessaoView: React.FC = () => {
         if (!matchesSearch) return false;
       }
 
-      // Tab filter
-      if (memberFilterTab === 'ativos') return m.status === 'ativo';
+      // Tab filter: Somente Todos | Coordenadores | Membros
       if (memberFilterTab === 'coordenadores') return m.pastoral_role === 'coordenador';
-      if (memberFilterTab === 'membros') return m.pastoral_role === 'membro';
-      if (memberFilterTab === 'inativos') return m.status === 'inativo' || m.status === 'pendente';
+      if (memberFilterTab === 'membros') return m.pastoral_role !== 'coordenador';
       return true;
     });
-  }, [pastoralMembers, memberSearch, memberFilterTab]);
+  }, [activePastoralMembers, memberSearch, memberFilterTab]);
 
   const handleAssignCapability = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -870,7 +1025,7 @@ export const GovernancaSucessaoView: React.FC = () => {
           <div>
             <h3 className="font-serif font-bold text-lg text-pastoral-cafe flex items-center gap-2">
               <Users className="w-5 h-5 text-pastoral-dourado" />
-              <span>Gestão de Membros Missionários ({pastoralMembers.length})</span>
+              <span>Gestão de Missionários — {activePastoralMembers.length} cadastrados</span>
             </h3>
             <p className="text-xs text-zinc-500">
               Cadastro oficial da Pastoral Missionária: controle de papéis, habilitações, aniversários e contatos
@@ -878,75 +1033,62 @@ export const GovernancaSucessaoView: React.FC = () => {
           </div>
 
           {canManage && (
-            <button
-              type="button"
-              onClick={handleOpenNewMemberModal}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-xs flex items-center gap-1.5 transition-all self-start sm:self-auto"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Novo Missionário</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={handleOpenBulkQualsModal}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-100 hover:bg-pastoral-creme text-pastoral-cafe border border-zinc-200 flex items-center gap-1.5 transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-pastoral-dourado" />
+                <span>Gerenciar Habilitações em Lote</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenNewMemberModal}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 shadow-xs flex items-center gap-1.5 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Novo Missionário</span>
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Barra de Filtros e Busca */}
+        {/* Barra de Filtros e Busca (Somente Todos | Coordenadores | Membros) */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Abas de Filtro de Papel / Status */}
           <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-zinc-100/80 text-xs">
             <button
               type="button"
               onClick={() => setMemberFilterTab('todos')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all ${
                 memberFilterTab === 'todos'
                   ? 'bg-white text-pastoral-cafe shadow-2xs'
                   : 'text-zinc-600 hover:text-pastoral-cafe'
               }`}
             >
-              Todos ({pastoralMembers.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setMemberFilterTab('ativos')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
-                memberFilterTab === 'ativos'
-                  ? 'bg-white text-emerald-800 shadow-2xs'
-                  : 'text-zinc-600 hover:text-emerald-800'
-              }`}
-            >
-              Ativos ({pastoralMembers.filter((m) => m.status === 'ativo').length})
+              Todos
             </button>
             <button
               type="button"
               onClick={() => setMemberFilterTab('coordenadores')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all ${
                 memberFilterTab === 'coordenadores'
                   ? 'bg-white text-pastoral-vinho shadow-2xs'
                   : 'text-zinc-600 hover:text-pastoral-vinho'
               }`}
             >
-              Coordenadores ({pastoralMembers.filter((m) => m.pastoral_role === 'coordenador').length})
+              Coordenadores
             </button>
             <button
               type="button"
               onClick={() => setMemberFilterTab('membros')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all ${
                 memberFilterTab === 'membros'
                   ? 'bg-white text-pastoral-cafe shadow-2xs'
                   : 'text-zinc-600 hover:text-pastoral-cafe'
               }`}
             >
-              Membros ({pastoralMembers.filter((m) => m.pastoral_role === 'membro').length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setMemberFilterTab('inativos')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
-                memberFilterTab === 'inativos'
-                  ? 'bg-white text-zinc-800 shadow-2xs'
-                  : 'text-zinc-600 hover:text-zinc-800'
-              }`}
-            >
-              Inativos ({pastoralMembers.filter((m) => m.status !== 'ativo').length})
+              Membros
             </button>
           </div>
 
@@ -957,7 +1099,7 @@ export const GovernancaSucessaoView: React.FC = () => {
               type="text"
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
-              placeholder="Pesquisar por nome, Thiago/Tiago, e-mail..."
+              placeholder="Pesquisar missionário pelo nome..."
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-zinc-200 bg-white focus:outline-none focus:ring-1 focus:ring-pastoral-dourado"
             />
             {memberSearch && (
@@ -1018,16 +1160,7 @@ export const GovernancaSucessaoView: React.FC = () => {
                                 : 'bg-pastoral-creme text-pastoral-cafe'
                             }`}
                           >
-                            {isCoord ? 'Coordenador(a)' : m.pastoral_role}
-                          </span>
-                          <span
-                            className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
-                              isActive
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-zinc-200 text-zinc-600'
-                            }`}
-                          >
-                            {m.status}
+                            {isCoord ? 'Coordenador(a)' : 'Membro'}
                           </span>
                         </div>
                       </div>
@@ -1124,24 +1257,23 @@ export const GovernancaSucessaoView: React.FC = () => {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {QUALIFICATIONS_OPTIONS.map((qual) => {
-                        const hasQual = (m.qualifications || []).includes(qual);
-                        return (
+                      {(m.qualifications || []).length === 0 ? (
+                        <span className="text-[10px] text-zinc-400 italic py-0.5">
+                          Sem habilitações atribuídas (em formação)
+                        </span>
+                      ) : (
+                        (m.qualifications || []).map((qual: string) => (
                           <button
                             key={qual}
                             type="button"
                             onClick={() => (canManage ? handleOpenQualsModal(m) : undefined)}
-                            className={`text-[9px] px-2 py-0.5 rounded-md font-semibold transition-all ${
-                              hasQual
-                                ? 'bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs font-bold'
-                                : 'bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-700'
-                            }`}
+                            className="text-[9px] px-2 py-0.5 rounded-md font-bold bg-pastoral-cafe text-pastoral-dourado-claro shadow-2xs transition-all hover:brightness-110"
                             title={canManage ? 'Clique para editar habilitações' : qual}
                           >
                             {qual}
                           </button>
-                        );
-                      })}
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1149,7 +1281,409 @@ export const GovernancaSucessaoView: React.FC = () => {
             })}
           </div>
         )}
+
+        {/* Histórico de Membros Arquivados / Removidos (Seção 6.4) */}
+        {canManage && archivedPastoralMembers.length > 0 && (
+          <div className="pt-4 border-t border-zinc-100">
+            <button
+              type="button"
+              onClick={() => setShowArchivedHistory((prev) => !prev)}
+              className="text-xs font-semibold text-zinc-500 hover:text-pastoral-cafe flex items-center gap-1.5"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>
+                {showArchivedHistory ? 'Ocultar' : 'Consultar'} Histórico de Membros Arquivados ({archivedPastoralMembers.length})
+              </span>
+            </button>
+
+            {showArchivedHistory && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {archivedPastoralMembers.map((am) => (
+                  <div
+                    key={am.id}
+                    className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-bold text-zinc-700 truncate">{am.name}</p>
+                      <p className="text-[10px] text-zinc-400">
+                        Registro arquivado • Histórico preservado
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleMemberStatus(am)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 flex-shrink-0"
+                    >
+                      Restaurar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Modal: Gerenciar Habilitações em Lote (Seção 5) */}
+      {isBulkQualsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-pastoral-dourado/40 space-y-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div>
+                <h3 className="font-serif font-bold text-base text-pastoral-cafe flex items-center gap-2">
+                  <Sparkles className="w-4.5 h-4.5 text-pastoral-dourado" />
+                  <span>Gerenciar Habilitações Pastorais em Lote</span>
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Selecione múltiplos missionários, confira a prévia obrigatória e aplique com registro de auditoria
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkHistoryPanel((prev) => !prev)}
+                  className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                >
+                  {showBulkHistoryPanel ? 'Voltar ao Editor' : 'Recuperação / Histórico'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkQualsModalOpen(false)}
+                  className="p-1 rounded text-zinc-400 hover:text-zinc-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {showBulkHistoryPanel ? (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-pastoral-cafe uppercase">
+                  Histórico de Alterações em Lote (Recuperação Segura)
+                </h4>
+                {bulkHistory.length === 0 ? (
+                  <p className="text-xs text-zinc-400 py-6 text-center">
+                    Nenhuma operação em lote registrada recentemente.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {bulkHistory.map((h) => (
+                      <div
+                        key={h.id}
+                        className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div>
+                          <p className="font-bold text-pastoral-cafe">
+                            {h.action === 'RECOVER_PASTORAL_QUALIFICATIONS_012'
+                              ? 'Recuperação Auditada Oficial (Migração 012)'
+                              : h.action === 'REVERT_BULK_PASTORAL_QUALIFICATIONS'
+                              ? 'Reversão de Lote'
+                              : `Atualização em Lote (${h.details?.mode || 'lote'})`}
+                          </p>
+                          <p className="text-[11px] text-zinc-500">
+                            Por {h.user_name} • {new Date(h.created_at).toLocaleString('pt-BR')} •{' '}
+                            {h.details?.affectedCount || h.details?.updatedCount || h.details?.restoredCount || 0} registro(s)
+                          </p>
+                        </div>
+                        {h.details?.changes?.length > 0 && (
+                          <button
+                            type="button"
+                            disabled={isApplyingBulk}
+                            onClick={() => handleRevertBulkOperation(h.id)}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300"
+                          >
+                            Restaurar Estado Anterior
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : !showBulkPreview ? (
+              <div className="space-y-4">
+                {/* Passo 1: Selecionar Missionários */}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-pastoral-cafe uppercase">
+                      1. Selecionar Missionários ({bulkSelectedMemberIds.length} selecionado(s))
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBulkSelectedMemberIds(bulkFilteredMembers.map((m) => m.id))
+                        }
+                        className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold"
+                      >
+                        Selecionar filtrados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBulkSelectedMemberIds(
+                            activePastoralMembers
+                              .filter((m) => m.pastoral_role !== 'coordenador')
+                              .map((m) => m.id)
+                          )
+                        }
+                        className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold"
+                      >
+                        Apenas Membros
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkSelectedMemberIds([])}
+                        className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold"
+                      >
+                        Limpar seleção
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={bulkSearch}
+                    onChange={(e) => setBulkSearch(e.target.value)}
+                    placeholder="Filtrar missionários pelo nome..."
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200"
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-2 rounded-xl border border-zinc-200 bg-zinc-50/60">
+                    {bulkFilteredMembers.map((m) => {
+                      const isChecked = bulkSelectedMemberIds.includes(m.id);
+                      const quals = m.qualifications || [];
+                      return (
+                        <label
+                          key={m.id}
+                          className={`p-2 rounded-lg border text-xs flex items-start gap-2 cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-pastoral-creme/70 border-pastoral-dourado font-semibold text-pastoral-cafe'
+                              : 'bg-white border-zinc-200 text-zinc-700'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() =>
+                              setBulkSelectedMemberIds((prev) =>
+                                prev.includes(m.id)
+                                  ? prev.filter((id) => id !== m.id)
+                                  : [...prev, m.id]
+                              )
+                            }
+                            className="mt-0.5 rounded"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate">{m.name}</p>
+                            <p className="text-[10px] text-zinc-400 truncate">
+                              {quals.length === 0 ? 'Sem habilitações' : quals.join(', ')}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Passo 2: Tipo de Operação */}
+                <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <label className="text-xs font-bold text-pastoral-cafe uppercase block">
+                    2. Escolha a Operação
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setBulkMode('remove')}
+                      className={`p-2.5 rounded-xl border font-bold text-left ${
+                        bulkMode === 'remove'
+                          ? 'border-pastoral-vinho bg-pastoral-vinho/10 text-pastoral-vinho'
+                          : 'border-zinc-200 text-zinc-600'
+                      }`}
+                    >
+                      Remover selecionadas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkMode('set')}
+                      className={`p-2.5 rounded-xl border font-bold text-left ${
+                        bulkMode === 'set'
+                          ? 'border-pastoral-cafe bg-pastoral-creme text-pastoral-cafe'
+                          : 'border-zinc-200 text-zinc-600'
+                      }`}
+                    >
+                      Definir lista exata
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkMode('add')}
+                      className={`p-2.5 rounded-xl border font-bold text-left ${
+                        bulkMode === 'add'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+                          : 'border-zinc-200 text-zinc-600'
+                      }`}
+                    >
+                      Adicionar selecionadas
+                    </button>
+                  </div>
+                </div>
+
+                {/* Passo 3: Habilitações Alvo */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-pastoral-cafe uppercase">
+                      3. Habilitações ({bulkMode === 'set' && bulkTargetQuals.length === 0 ? 'Nenhuma = Limpar tudo' : `${bulkTargetQuals.length} marcada(s)`})
+                    </label>
+                    <div className="flex gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setBulkTargetQuals([...QUALIFICATIONS_OPTIONS])}
+                        className="text-pastoral-cafe hover:underline font-semibold"
+                      >
+                        Marcar todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkTargetQuals([])}
+                        className="text-rose-700 hover:underline font-semibold"
+                      >
+                        Desmarcar todas
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUALIFICATIONS_OPTIONS.map((q) => {
+                      const active = bulkTargetQuals.includes(q);
+                      return (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() =>
+                            setBulkTargetQuals((prev) =>
+                              prev.includes(q) ? prev.filter((x) => x !== q) : [...prev, q]
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                            active
+                              ? 'bg-pastoral-cafe text-pastoral-dourado-claro border-pastoral-cafe'
+                              : 'bg-white text-zinc-600 border-zinc-200 hover:border-pastoral-dourado'
+                          }`}
+                        >
+                          {q}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs text-zinc-700 pt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkPreserveMusic}
+                      onChange={(e) => setBulkPreserveMusic(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span>
+                      Preservar a habilitação <strong>Música</strong> nos membros selecionados que já a possuem confirmada
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkQualsModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkSelectedMemberIds.length === 0}
+                    onClick={() => setShowBulkPreview(true)}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-pastoral-dourado text-pastoral-profundo hover:brightness-105 disabled:opacity-50"
+                  >
+                    Gerar Prévia Obrigatória
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Prévia Obrigatória (Seção 5.3) */
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                    <p className="text-[10px] text-zinc-500 uppercase">Selecionados</p>
+                    <p className="text-base font-bold text-pastoral-cafe">{bulkPreviewData.totalSelected}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <p className="text-[10px] text-amber-800 uppercase">Serão Modificados</p>
+                    <p className="text-base font-bold text-amber-900">{bulkPreviewData.modifiedCount}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                    <p className="text-[10px] text-zinc-500 uppercase">Ficarão sem Funções</p>
+                    <p className="text-base font-bold text-zinc-700">{bulkPreviewData.zeroQualsCount}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <p className="text-[10px] text-emerald-800 uppercase">Permanecerão c/ Música</p>
+                    <p className="text-base font-bold text-emerald-900">{bulkPreviewData.musicRemainingCount}</p>
+                  </div>
+                </div>
+
+                {bulkPreviewData.conflicts.length > 0 && (
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900">
+                    <strong>Atenção:</strong> {bulkPreviewData.conflicts.length} coordenador(es) selecionado(s) ficaria(m) sem habilitações pastorais. O papel administrativo de coordenador permanece intacto.
+                  </div>
+                )}
+
+                <div className="space-y-2 max-h-64 overflow-y-auto border border-zinc-200 rounded-xl p-3 bg-zinc-50/50">
+                  {bulkPreviewData.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-lg bg-white border border-zinc-200 text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-pastoral-cafe">{item.name}</span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            item.changed
+                              ? 'bg-amber-100 text-amber-900'
+                              : 'bg-zinc-100 text-zinc-500'
+                          }`}
+                        >
+                          {item.changed ? 'Será atualizado' : 'Sem alteração'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500">
+                        <strong>Antes:</strong> {item.before.length > 0 ? item.before.join(', ') : 'Nenhuma'}
+                      </p>
+                      <p className="text-[11px] text-emerald-800">
+                        <strong>Depois:</strong> {item.after.length > 0 ? item.after.join(', ') : 'Nenhuma (em formação)'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkPreview(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100"
+                  >
+                    Voltar e Ajustar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isApplyingBulk}
+                    onClick={handleExecuteBulkQualifications}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-pastoral-cafe text-white hover:bg-pastoral-profundo disabled:opacity-50"
+                  >
+                    {isApplyingBulk ? 'Aplicando em transação...' : 'Confirmar e Aplicar Alterações'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal: Novo Missionário */}
       {isNewMemberModalOpen && (

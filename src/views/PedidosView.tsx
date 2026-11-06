@@ -253,17 +253,8 @@ export const PedidosView: React.FC<PedidosViewProps> = ({
         </div>
       </div>
 
-      {/* Distinct Institutional & Campaign Counters Bar (Section 6.2) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-        <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] text-zinc-500 font-medium">
-            <span>Missionários (Gov.)</span>
-            <Users className="w-3.5 h-3.5 text-pastoral-dourado" />
-          </div>
-          <p className="text-lg font-bold text-pastoral-cafe mt-0.5">{counters.pastoralMembers}</p>
-          <p className="text-[10px] text-zinc-400">Cadastro institucional</p>
-        </div>
-
+      {/* Campaign Counters Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <div className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-xs">
           <div className="flex items-center justify-between text-[11px] text-zinc-500 font-medium">
             <span>Compradores Únicos</span>

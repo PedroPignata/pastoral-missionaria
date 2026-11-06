@@ -7,23 +7,11 @@ import {
   Check,
   MessageCircle,
   ShieldCheck,
-  Sparkles,
-  Filter,
+  Music,
   Lock,
   Eye,
 } from 'lucide-react';
 import { api } from '../services/api';
-
-const PASTORAL_QUALIFICATIONS = [
-  'Intercessão',
-  'Pregação',
-  'Formação',
-  'Testemunho',
-  'Música',
-  'Condução de oração',
-  'Animação',
-  'Apoio',
-];
 
 interface DirectoryMember {
   id: string;
@@ -38,11 +26,17 @@ interface DirectoryMember {
   qualifications: string[];
 }
 
+function cleanDisplayName(rawName: string): string {
+  return String(rawName || '')
+    .replace(/\s*\(Coordenador(?:a)?\)\s*/gi, '')
+    .trim();
+}
+
 export const DiretorioMembrosView: React.FC = () => {
   const [members, setMembers] = useState<DirectoryMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedQualification, setSelectedQualification] = useState('todas');
+  const [filterMode, setFilterMode] = useState<'todos' | 'musica'>('todos');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [updatingPrivacyId, setUpdatingPrivacyId] = useState<string | null>(null);
 
@@ -64,19 +58,20 @@ export const DiretorioMembrosView: React.FC = () => {
 
   const filteredMembers = useMemo(() => {
     return members.filter((m) => {
+      const term = search.toLowerCase().trim();
       const matchesSearch =
-        !search.trim() ||
-        m.name.toLowerCase().includes(search.toLowerCase().trim()) ||
-        (m.display_name || '').toLowerCase().includes(search.toLowerCase().trim()) ||
-        (m.phone || '').includes(search.trim());
+        !term ||
+        m.name.toLowerCase().includes(term) ||
+        (m.display_name || '').toLowerCase().includes(term) ||
+        (m.phone || '').includes(term);
 
-      const matchesQual =
-        selectedQualification === 'todas' ||
-        (Array.isArray(m.qualifications) && m.qualifications.includes(selectedQualification));
+      const matchesFilter =
+        filterMode === 'todos' ||
+        (Array.isArray(m.qualifications) && m.qualifications.includes('Música'));
 
-      return matchesSearch && matchesQual;
+      return matchesSearch && matchesFilter;
     });
-  }, [members, search, selectedQualification]);
+  }, [members, search, filterMode]);
 
   const handleCopyPhone = (id: string, phone: string) => {
     navigator.clipboard.writeText(phone);
@@ -87,7 +82,7 @@ export const DiretorioMembrosView: React.FC = () => {
   const formatWhatsAppUrl = (phone: string, displayName: string) => {
     const digits = phone.replace(/\D/g, '');
     const fullNumber = digits.startsWith('55') ? digits : `55${digits}`;
-    const msg = encodeURIComponent(`Paz e bem, ${displayName}! Tudo bem?`);
+    const msg = encodeURIComponent(`Paz e bem, ${cleanDisplayName(displayName)}! Tudo bem?`);
     return `https://wa.me/${fullNumber}?text=${msg}`;
   };
 
@@ -117,91 +112,55 @@ export const DiretorioMembrosView: React.FC = () => {
               Missionários da Pastoral
             </h2>
             <p className="text-sm text-[#E5D5C5]/85 max-w-2xl">
-              Consulta fraterna dos membros ativos da Pastoral Missionária — Ágape Apostolado de Jovens, suas habilitações pastorais e contatos autorizados.
+              Consulta fraterna dos missionários da Pastoral Missionária — Ágape Apostolado de Jovens e contatos autorizados.
             </p>
-          </div>
-
-          <div className="flex items-center gap-3 self-start md:self-center bg-[#1F1715]/80 px-4 py-3 rounded-xl border border-[#B68B4B]/30">
-            <div className="w-10 h-10 rounded-lg bg-[#B68B4B]/20 flex items-center justify-center text-[#D4AF37]">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold text-[#FAF3E9] leading-none">
-                {members.length}
-              </div>
-              <div className="text-xs text-[#E5D5C5]/75 mt-0.5">
-                missionários cadastrados
-              </div>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Barra de Busca e Filtro por Habilitação */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#E5D5C5] space-y-4">
-        <div className="flex flex-col md:flex-row gap-3">
+      {/* Barra de Busca e Filtro Simplificado (Todos | Música) */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#E5D5C5]">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-[#8C7A6B] absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar missionário por nome, apelido ou telefone..."
+              placeholder="Pesquisar missionário pelo nome..."
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E5D5C5] bg-[#FAF3E9]/40 text-sm text-[#281F1C] placeholder-[#8C7A6B] focus:outline-none focus:ring-2 focus:ring-[#B68B4B]"
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-[#8C7A6B] shrink-0" />
-            <select
-              value={selectedQualification}
-              onChange={(e) => setSelectedQualification(e.target.value)}
-              className="px-3.5 py-2.5 rounded-xl border border-[#E5D5C5] bg-white text-sm text-[#281F1C] font-medium focus:outline-none focus:ring-2 focus:ring-[#B68B4B]"
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setFilterMode('todos')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                filterMode === 'todos'
+                  ? 'bg-[#3C2D29] text-[#FAF3E9] shadow-sm'
+                  : 'bg-[#FAF3E9] text-[#5C4942] hover:bg-[#E5D5C5]/60 border border-[#E5D5C5]'
+              }`}
             >
-              <option value="todas">Todas as Habilitações ({members.length})</option>
-              {PASTORAL_QUALIFICATIONS.map((q) => (
-                <option key={q} value={q}>
-                  {q}
-                </option>
-              ))}
-            </select>
+              Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode(filterMode === 'musica' ? 'todos' : 'musica')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                filterMode === 'musica'
+                  ? 'bg-[#B68B4B] text-[#281F1C] shadow-sm'
+                  : 'bg-[#FAF3E9] text-[#5C4942] hover:bg-[#E5D5C5]/60 border border-[#E5D5C5]'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              Música
+            </button>
           </div>
-        </div>
-
-        {/* Pílulas rápidas de habilitação */}
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          <button
-            type="button"
-            onClick={() => setSelectedQualification('todas')}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-              selectedQualification === 'todas'
-                ? 'bg-[#3C2D29] text-[#FAF3E9] shadow-sm'
-                : 'bg-[#FAF3E9] text-[#5C4942] hover:bg-[#E5D5C5]/60'
-            }`}
-          >
-            Todos ({members.length})
-          </button>
-          {PASTORAL_QUALIFICATIONS.map((q) => {
-            const count = members.filter((m) => m.qualifications?.includes(q)).length;
-            return (
-              <button
-                key={q}
-                type="button"
-                onClick={() => setSelectedQualification(selectedQualification === q ? 'todas' : q)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  selectedQualification === q
-                    ? 'bg-[#B68B4B] text-white shadow-sm'
-                    : 'bg-[#FAF3E9] text-[#5C4942] hover:bg-[#E5D5C5]/60'
-                }`}
-              >
-                {q} ({count})
-              </button>
-            );
-          })}
         </div>
       </div>
 
-      {/* Lista de Cartões */}
+      {/* Lista de Cartões Simplificados */}
       {loading ? (
         <div className="bg-white rounded-2xl p-12 text-center border border-[#E5D5C5]">
           <div className="w-8 h-8 border-2 border-[#B68B4B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -212,15 +171,22 @@ export const DiretorioMembrosView: React.FC = () => {
           <Users className="w-10 h-10 text-[#B68B4B] mx-auto mb-2 opacity-60" />
           <p className="text-base font-semibold text-[#281F1C]">Nenhum missionário encontrado</p>
           <p className="text-xs text-[#8C7A6B] mt-1">
-            Ajuste os termos da busca ou selecione outra habilitação pastoral.
+            Ajuste o termo da pesquisa ou alterne o filtro.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredMembers.map((member) => {
-            const isCoord = member.pastoral_role === 'coordenador' || member.pastoral_role === 'admin';
-            const initials = (member.display_name || member.name || 'M')
+            const isCoord =
+              member.pastoral_role === 'coordenador' || member.pastoral_role === 'admin';
+            const hasMusic =
+              Array.isArray(member.qualifications) && member.qualifications.includes('Música');
+            const cleanFull = cleanDisplayName(member.name);
+            const cleanShort = cleanDisplayName(member.display_name || member.name);
+
+            const initials = cleanFull
               .split(' ')
+              .filter(Boolean)
               .map((n) => n[0])
               .slice(0, 2)
               .join('')
@@ -235,9 +201,15 @@ export const DiretorioMembrosView: React.FC = () => {
                     : 'border-[#E5D5C5] shadow-sm hover:border-[#B68B4B]/40'
                 }`}
               >
-                <div>
-                  {/* Topo do Card */}
-                  <div className="flex items-start gap-3.5">
+                {/* Topo do Card: Avatar, Nome, Coordenador(a) e selo discreto Música */}
+                <div className="flex items-start gap-3.5">
+                  {member.photo_url ? (
+                    <img
+                      src={member.photo_url}
+                      alt={cleanFull}
+                      className="w-12 h-12 rounded-xl object-cover border border-[#B68B4B]/40 shrink-0"
+                    />
+                  ) : (
                     <div
                       className={`w-12 h-12 rounded-xl flex items-center justify-center font-serif font-bold text-base shrink-0 ${
                         isCoord
@@ -247,45 +219,41 @@ export const DiretorioMembrosView: React.FC = () => {
                     >
                       {initials}
                     </div>
+                  )}
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-[#281F1C] text-base leading-snug truncate">
-                          {member.display_name || member.name}
-                        </h3>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3
+                        className="font-bold text-[#281F1C] text-base leading-snug truncate"
+                        title={cleanFull}
+                      >
+                        {cleanFull}
+                      </h3>
+                    </div>
+
+                    {cleanShort && cleanShort !== cleanFull && (
+                      <p className="text-xs text-[#6E5A53] truncate mt-0.5">{cleanShort}</p>
+                    )}
+
+                    {(isCoord || hasMusic) && (
+                      <div className="flex items-center gap-1.5 flex-wrap mt-2">
                         {isCoord && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#B68B4B]/15 text-[#8E6930] border border-[#B68B4B]/30">
                             <ShieldCheck className="w-3 h-3" />
-                            Coordenação
+                            {member.name.toLowerCase().includes('coordenadora') ||
+                            cleanShort.toLowerCase().startsWith('fernanda')
+                              ? 'Coordenadora'
+                              : 'Coordenador'}
+                          </span>
+                        )}
+                        {hasMusic && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF3E9] text-[#3C2D29] border border-[#B68B4B]/40">
+                            <Music className="w-3 h-3 text-[#B68B4B]" />
+                            Música
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#6E5A53] truncate mt-0.5" title={member.name}>
-                        {member.name}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Habilitações Confirmadas */}
-                  <div className="mt-4">
-                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B] mb-1.5">
-                      <Sparkles className="w-3 h-3 text-[#B68B4B]" />
-                      Habilitações Pastorais ({member.qualifications?.length || 0})
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {Array.isArray(member.qualifications) && member.qualifications.length > 0 ? (
-                        member.qualifications.map((q) => (
-                          <span
-                            key={q}
-                            className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-[#3C2D29] text-[#FAF3E9]"
-                          >
-                            {q}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-[#8C7A6B] italic">Em formação</span>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -316,7 +284,7 @@ export const DiretorioMembrosView: React.FC = () => {
                         </button>
 
                         <a
-                          href={formatWhatsAppUrl(member.phone, member.display_name || member.name)}
+                          href={formatWhatsAppUrl(member.phone, cleanShort || cleanFull)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-xs"

@@ -31,6 +31,7 @@ interface ItemRow {
   size: TShirtSize;
   quantity: number;
   unit_price_cents: number;
+  unit_price_str?: string;
 }
 
 interface PastoralMemberOption {
@@ -41,6 +42,13 @@ interface PastoralMemberOption {
   phone?: string | null;
   pastoral_role: string;
   status: string;
+}
+
+export function cleanMissionarySelectorName(rawName: string): string {
+  return String(rawName || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export const NewOrderModal: React.FC<NewOrderModalProps> = ({
@@ -76,15 +84,28 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [error, setError] = useState('');
 
   const defaultPrice = activeCampaign?.default_price_cents || 4500;
+  const defaultPriceFormatted = (defaultPrice / 100).toFixed(2).replace('.', ',');
 
   const [items, setItems] = useState<ItemRow[]>([
-    { model: 'Tradicional', size: 'M', quantity: 1, unit_price_cents: defaultPrice },
+    {
+      model: 'Tradicional',
+      size: 'M',
+      quantity: 1,
+      unit_price_cents: defaultPrice,
+      unit_price_str: defaultPriceFormatted,
+    },
   ]);
 
   const loadInstitutionalMembers = async () => {
     try {
       const list = await api.getPastoralMembers({ status: 'ativo' });
-      setPastoralMembers(Array.isArray(list) ? list : []);
+      const sorted = (Array.isArray(list) ? list : []).sort((a, b) =>
+        cleanMissionarySelectorName(a.name).localeCompare(
+          cleanMissionarySelectorName(b.name),
+          'pt-BR'
+        )
+      );
+      setPastoralMembers(sorted);
     } catch (err) {
       console.error('Erro ao carregar missionários da Governança:', err);
     }
@@ -107,7 +128,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setPaymentDate(new Date().toISOString().split('T')[0]);
       setPaymentAmountReais('');
       setPaymentNotes('');
-      setItems([{ model: 'Tradicional', size: 'M', quantity: 1, unit_price_cents: defaultPrice }]);
+      setItems([
+        {
+          model: 'Tradicional',
+          size: 'M',
+          quantity: 1,
+          unit_price_cents: defaultPrice,
+          unit_price_str: (defaultPrice / 100).toFixed(2).replace('.', ','),
+        },
+      ]);
     }
   }, [isOpen, defaultPrice]);
 
@@ -116,9 +145,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     const term = memberSearch.toLowerCase().trim();
     return pastoralMembers.filter(
       (m) =>
+        cleanMissionarySelectorName(m.name).toLowerCase().includes(term) ||
         m.name.toLowerCase().includes(term) ||
-        (m.display_name || '').toLowerCase().includes(term) ||
-        (m.phone || '').includes(term)
+        (m.display_name || '').toLowerCase().includes(term)
     );
   }, [pastoralMembers, memberSearch]);
 
@@ -127,7 +156,18 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     [pastoralMembers, selectedPastoralMemberId]
   );
 
-  // Verifica se o missionário selecionado já possui pedido na campanha ativa (Seção 7.2)
+  // Detecta eventual homônimo para diferenciação discreta pós-seleção (Seção 8.3)
+  const hasHomonym = useMemo(() => {
+    if (!selectedMember) return false;
+    const targetClean = cleanMissionarySelectorName(selectedMember.name).toLowerCase();
+    return (
+      pastoralMembers.filter(
+        (m) => cleanMissionarySelectorName(m.name).toLowerCase() === targetClean
+      ).length > 1
+    );
+  }, [pastoralMembers, selectedMember]);
+
+  // Verifica se o missionário selecionado já possui pedido na campanha ativa
   const existingOrdersForMember = useMemo(() => {
     if (!selectedMember || !activeCampaign) return [];
     return orders.filter(
@@ -148,7 +188,16 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   }, [hasInitialPayment, totalAmountCents]);
 
   const handleAddItem = () => {
-    setItems([...items, { model: 'Baby look', size: 'M', quantity: 1, unit_price_cents: defaultPrice }]);
+    setItems([
+      ...items,
+      {
+        model: 'Baby look',
+        size: 'M',
+        quantity: 1,
+        unit_price_cents: defaultPrice,
+        unit_price_str: (defaultPrice / 100).toFixed(2).replace('.', ','),
+      },
+    ]);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -159,6 +208,16 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const handleItemChange = (index: number, field: keyof ItemRow, value: any) => {
     const updated = [...items];
     (updated[index] as any)[field] = value;
+    setItems(updated);
+  };
+
+  const handleUnitPriceInputChange = (index: number, rawStr: string) => {
+    const updated = [...items];
+    updated[index].unit_price_str = rawStr;
+    const normalized = parseFloat(rawStr.replace(/\./g, '').replace(',', '.'));
+    if (!isNaN(normalized) && normalized > 0) {
+      updated[index].unit_price_cents = Math.round(normalized * 100);
+    }
     setItems(updated);
   };
 
@@ -176,7 +235,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         phone: newMemberPhone.trim() || null,
         pastoral_role: 'membro',
         status: 'ativo',
-        qualifications: ['Intercessão'],
+        qualifications: [],
       });
       await loadInstitutionalMembers();
       if (created?.id) {
@@ -203,7 +262,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     }
 
     if (!selectedPastoralMemberId) {
-      setError('Selecione um missionário da Governança para vincular ao pedido.');
+      setError('Selecione um missionário para vincular ao pedido.');
       return;
     }
 
@@ -227,7 +286,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       await api.createOrder({
         campaign_id: activeCampaign.id,
         pastoral_member_id: selectedPastoralMemberId,
-        items,
+        items: items.map(({ model, size, quantity, unit_price_cents }) => ({
+          model,
+          size,
+          quantity,
+          unit_price_cents,
+        })),
         notes,
         production_status: productionStatus,
         initial_payment: initialPaymentPayload,
@@ -247,7 +311,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Novo Pedido de Camiseta"
-      subtitle={`${activeCampaign?.name || 'Pastoral Missionária'} • Vinculado à Governança`}
+      subtitle={activeCampaign?.name || 'Pastoral Missionária'}
       maxWidth="xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -257,11 +321,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </div>
         )}
 
-        {/* Etapa 1: Seleção do Missionário Institucional da Governança */}
+        {/* Etapa 1: Seleção do Missionário (Simplificada — Seção 8) */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider">
-              1. Selecionar Missionário (Governança) *
+              Selecionar Missionário *
             </label>
             <button
               type="button"
@@ -271,7 +335,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               <UserPlus className="w-3.5 h-3.5" />
               {isNewMemberMode
                 ? 'Selecionar missionário existente'
-                : 'Cadastrar novo missionário na Governança'}
+                : '+ Cadastrar novo missionário na Governança'}
             </button>
           </div>
 
@@ -283,10 +347,36 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   type="text"
                   value={memberSearch}
                   onChange={(e) => setMemberSearch(e.target.value)}
-                  placeholder="Filtrar missionário por nome, apelido ou telefone..."
+                  placeholder="Buscar missionário pelo nome..."
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-pastoral-dourado"
                 />
               </div>
+
+              {memberSearch.trim() && filteredPastoralMembers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 rounded-xl bg-pastoral-creme/40 border border-pastoral-dourado/20">
+                  {filteredPastoralMembers.map((m) => {
+                    const cleanName = cleanMissionarySelectorName(m.name);
+                    const isSelected = selectedPastoralMemberId === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPastoralMemberId(m.id);
+                          setMemberSearch('');
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                          isSelected
+                            ? 'bg-pastoral-cafe text-white'
+                            : 'bg-white text-pastoral-cafe border border-zinc-200 hover:border-pastoral-dourado'
+                        }`}
+                      >
+                        {cleanName}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <select
                 value={selectedPastoralMemberId}
@@ -294,13 +384,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 className="w-full px-3 py-2.5 text-sm border border-zinc-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-pastoral-dourado font-medium text-pastoral-cafe"
                 required
               >
-                <option value="">
-                  Selecione entre os {filteredPastoralMembers.length} missionários ativos...
-                </option>
+                <option value="">Selecione um missionário</option>
                 {filteredPastoralMembers.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} {m.display_name && m.display_name !== m.name ? `(${m.display_name})` : ''}{' '}
-                    {m.phone ? `• ${m.phone}` : ''} [{m.id}]
+                    {cleanMissionarySelectorName(m.name)}
                   </option>
                 ))}
               </select>
@@ -347,24 +434,27 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           )}
 
-          {/* Etapa 2: Resumo Automático dos Dados Institucionais do Missionário Selecionado */}
+          {/* Resumo Discreto do Missionário Selecionado */}
           {selectedMember && (
             <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-1.5 font-bold text-pastoral-cafe">
                   <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                  <span>{selectedMember.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
-                    Apelido: {selectedMember.display_name}
-                  </span>
+                  <span>{cleanMissionarySelectorName(selectedMember.name)}</span>
+                  {hasHomonym && selectedMember.display_name && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
+                      {selectedMember.display_name}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-zinc-600 pl-5">
-                  <span className="flex items-center gap-1">
-                    <Phone className="w-3 h-3 text-emerald-700" />
-                    {selectedMember.phone || 'Sem telefone cadastrado'}
-                  </span>
-                  <span>ID: {selectedMember.id}</span>
-                </div>
+                {selectedMember.phone && (
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-600 pl-5">
+                    <span className="flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-emerald-700" />
+                      {selectedMember.phone}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {onNavigateToGovernance && (
@@ -383,7 +473,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           )}
 
-          {/* Alerta se o missionário já possui pedido nesta campanha (Seção 7.2) */}
+          {/* Alerta se o missionário já possui pedido nesta campanha */}
           {existingOrdersForMember.length > 0 && (
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2">
               <div className="flex items-start gap-2">
@@ -394,7 +484,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     {existingOrdersForMember.length === 1 ? 'pedido' : 'pedidos'} nesta campanha.
                   </p>
                   <p className="text-[11px] text-amber-800 mt-0.5">
-                    Deseja adicionar outro pedido para {selectedMember?.display_name} ou visualizar/editar o pedido existente?
+                    Deseja adicionar outro pedido para{' '}
+                    {cleanMissionarySelectorName(selectedMember?.name || '')} ou visualizar/editar o
+                    pedido existente?
                   </p>
                 </div>
               </div>
@@ -409,7 +501,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     }}
                     className="px-3 py-1 rounded-lg bg-amber-700 text-white font-semibold text-[11px] hover:bg-amber-800"
                   >
-                    Abrir Pedido Existente ({existingOrdersForMember[0].items.map((i) => `${i.quantity}x ${i.model} ${i.size}`).join(', ')})
+                    Abrir Pedido Existente (
+                    {existingOrdersForMember[0].items
+                      .map((i) => `${i.quantity}x ${i.model} ${i.size}`)
+                      .join(', ')}
+                    )
                   </button>
                 </div>
               )}
@@ -417,18 +513,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           )}
         </div>
 
-        {/* Etapa 3: Camisetas do Pedido */}
+        {/* Etapa 2: Camisetas do Pedido */}
         <div>
-          <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-2">
-            2. Camisetas do Pedido
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider">
+              Camisetas do Pedido
+            </label>
+            <span className="text-[11px] text-zinc-500">
+              Preço padrão da campanha: <b className="text-pastoral-cafe">{formatCurrency(defaultPrice)}</b>
+            </span>
+          </div>
           <div className="space-y-2">
             {items.map((item, idx) => (
               <div
                 key={idx}
                 className="flex flex-wrap items-center gap-2 p-3 bg-zinc-50 border border-zinc-200 rounded-xl"
               >
-                <div className="flex-1 min-w-[130px]">
+                <div className="flex-1 min-w-[125px]">
                   <label className="block text-[10px] text-zinc-500 font-semibold mb-1">Modelo</label>
                   <select
                     value={item.model}
@@ -463,7 +564,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     max="50"
                     value={item.quantity}
                     onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
-                    className="w-full text-xs font-semibold px-2 py-1.5 border border-zinc-300 rounded-lg text-center"
+                    className="w-full text-xs font-semibold px-2 py-1.5 border border-zinc-300 rounded-lg text-center bg-white"
+                  />
+                </div>
+
+                <div className="w-24">
+                  <label className="block text-[10px] text-zinc-500 font-semibold mb-1">
+                    Valor Unit. (R$)
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      item.unit_price_str !== undefined
+                        ? item.unit_price_str
+                        : (item.unit_price_cents / 100).toFixed(2).replace('.', ',')
+                    }
+                    onChange={(e) => handleUnitPriceInputChange(idx, e.target.value)}
+                    className="w-full text-xs font-semibold px-2 py-1.5 border border-zinc-300 rounded-lg text-right bg-white"
                   />
                 </div>
 
@@ -497,7 +614,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </button>
         </div>
 
-        {/* Etapa 4: Estágio de Produção e Pagamento Inicial Opcional */}
+        {/* Etapa 3: Estágio de Produção e Pagamento Inicial Opcional */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-bold text-pastoral-cafe uppercase tracking-wider mb-1">

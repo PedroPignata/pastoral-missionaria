@@ -294,6 +294,15 @@ export const api = {
     return handleResponse<any>(res);
   },
 
+  async updateCampaign(id: string, data: Partial<Campaign>) {
+    const res = await fetch(`${API_BASE}/campaigns/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
   async activateCampaign(id: string) {
     const res = await fetch(`${API_BASE}/campaigns/${id}/activate`, {
       method: 'POST',
@@ -598,6 +607,48 @@ export const api = {
       body: JSON.stringify({ status }),
     });
     return handleResponse<any>(res);
+  },
+
+  async bulkUpdateMemberQualifications(data: {
+    memberIds: string[];
+    mode: 'remove' | 'add' | 'set';
+    qualifications: string[];
+    preserveMusic?: boolean;
+  }) {
+    const res = await fetch(`${API_BASE}/platform/members/bulk-qualifications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{
+      success: boolean;
+      auditId: string;
+      updatedCount: number;
+      changes: Array<{ id: string; name: string; before: string[]; after: string[] }>;
+      updatedMembers: any[];
+      message: string;
+    }>(res);
+  },
+
+  async getBulkQualificationsHistory() {
+    const res = await fetch(`${API_BASE}/platform/members/bulk-qualifications/history`, {
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any[]>(res);
+  },
+
+  async revertBulkQualifications(auditId: string) {
+    const res = await fetch(`${API_BASE}/platform/members/bulk-qualifications/revert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ auditId }),
+    });
+    return handleResponse<{
+      success: boolean;
+      restoredCount: number;
+      restoredMembers: any[];
+      message: string;
+    }>(res);
   },
 
   async getMemberBirthdays() {

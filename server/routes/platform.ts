@@ -1328,7 +1328,7 @@ platformRouter.post('/members', authenticateToken, requireRole(['admin', 'coorde
     pastoral_role,
     status,
     joined_at || now.split('T')[0],
-    JSON.stringify(Array.isArray(qualifications) && qualifications.length > 0 ? qualifications : ['Intercessão']),
+    JSON.stringify(Array.isArray(qualifications) ? qualifications : []),
     JSON.stringify(Array.isArray(skills) ? skills : []),
     birth_day ? Number(birth_day) : null,
     birth_month ? Number(birth_month) : null,
@@ -1609,10 +1609,15 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
     return res.status(400).json({ error: 'O campo qualifications deve ser um array de strings.' });
   }
 
-  const existing = db.prepare('SELECT id, name, display_name FROM pastoral_members WHERE id = ?').get(id) as any;
+  const existing = db.prepare('SELECT id, name, display_name, qualifications_json FROM pastoral_members WHERE id = ?').get(id) as any;
   if (!existing) {
     return res.status(404).json({ error: 'Missionário não encontrado.' });
   }
+
+  let previousQualifications: string[] = [];
+  try {
+    previousQualifications = JSON.parse(existing.qualifications_json || '[]');
+  } catch {}
 
   const now = new Date().toISOString();
   db.prepare(`
@@ -1624,7 +1629,18 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_QUALIFICATIONS', 'pastoral_member', ?, ?, ?)
-  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify({ qualifications }), now);
+  `).run(
+    crypto.randomUUID(),
+    req.user?.id,
+    req.user?.name,
+    id,
+    JSON.stringify({
+      member_name: existing.name,
+      previous_qualifications: previousQualifications,
+      qualifications,
+    }),
+    now
+  );
 
   const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
   const parsedQualifications = JSON.parse(updatedMember.qualifications_json || '[]');
@@ -1639,6 +1655,205 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
       skills: JSON.parse(updatedMember.skills_json || '[]'),
     },
     message: `Habilitações de ${existing.display_name || existing.name} salvas com sucesso!`,
+  });
+});
+
+// POST /api/platform/members/bulk-qualifications (Gerenciamento Seguro de Habilitações em Lote com Auditoria e Recuperação)
+platformRouter.post('/members/bulk-qualifications', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { memberIds, mode, qualifications, preserveMusic = false } = req.body;
+
+  if (!Array.isArray(memberIds) || memberIds.length === 0) {
+    return res.status(400).json({ error: 'Selecione ao menos um missionário para atualizar em lote.' });
+  }
+  if (!['remove', 'add', 'set'].includes(mode)) {
+    return res.status(400).json({ error: 'Modo de operação inválido (use remove, add ou set).' });
+  }
+  if (!Array.isArray(qualifications)) {
+    return res.status(400).json({ error: 'O campo qualifications deve ser um array de strings.' });
+  }
+
+  const now = new Date().toISOString();
+  const auditId = 'aud_bulk_quals_' + crypto.randomBytes(6).toString('hex');
+  const changes: Array<{ id: string; name: string; before: string[]; after: string[] }> = [];
+  const updatedMembers: any[] = [];
+
+  const selectMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?');
+  const updateMember = db.prepare('UPDATE pastoral_members SET qualifications_json = ?, updated_at = ? WHERE id = ?');
+
+  const tx = db.transaction(() => {
+    for (const memberId of memberIds) {
+      if (!memberId || typeof memberId !== 'string') continue;
+      const row = selectMember.get(memberId) as any;
+      if (!row) {
+        throw new Error(`Missionário com ID ${memberId} não encontrado.`);
+      }
+
+      let currentQuals: string[] = [];
+      try {
+        currentQuals = JSON.parse(row.qualifications_json || '[]');
+      } catch {}
+
+      const hadMusic = currentQuals.includes('Música');
+      let nextQuals: string[] = [];
+
+      if (mode === 'remove') {
+        nextQuals = currentQuals.filter((q) => !qualifications.includes(q));
+      } else if (mode === 'add') {
+        const set = new Set([...currentQuals, ...qualifications]);
+        nextQuals = Array.from(set);
+      } else if (mode === 'set') {
+        nextQuals = [...qualifications];
+      }
+
+      if (preserveMusic && hadMusic && !nextQuals.includes('Música')) {
+        nextQuals.push('Música');
+      }
+
+      const nextJson = JSON.stringify(nextQuals);
+      updateMember.run(nextJson, now, memberId);
+
+      changes.push({
+        id: row.id,
+        name: row.name,
+        before: currentQuals,
+        after: nextQuals,
+      });
+
+      const refreshed = selectMember.get(memberId) as any;
+      updatedMembers.push({
+        ...refreshed,
+        qualifications: nextQuals,
+        skills: JSON.parse(refreshed.skills_json || '[]'),
+      });
+    }
+
+    db.prepare(`
+      INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'BULK_UPDATE_PASTORAL_QUALIFICATIONS', 'pastoral_member', ?, ?, ?)
+    `).run(
+      auditId,
+      req.user?.id,
+      req.user?.name || 'Coordenação',
+      'bulk_' + changes.length,
+      JSON.stringify({
+        mode,
+        targetQualifications: qualifications,
+        preserveMusic: Boolean(preserveMusic),
+        affectedCount: changes.length,
+        changes,
+      }),
+      now
+    );
+  });
+
+  try {
+    tx();
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Falha ao executar atualização em lote.' });
+  }
+
+  return res.json({
+    success: true,
+    auditId,
+    updatedCount: changes.length,
+    changes,
+    updatedMembers,
+    message: `Habilitações atualizadas em lote para ${changes.length} missionário(s) com sucesso!`,
+  });
+});
+
+// GET /api/platform/members/bulk-qualifications/history (Histórico de Operações em Lote para Recuperação)
+platformRouter.get('/members/bulk-qualifications/history', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
+  const rows = db.prepare(`
+    SELECT id, user_id, user_name, action, entity_id, details_json, created_at
+    FROM audit_logs
+    WHERE action IN ('BULK_UPDATE_PASTORAL_QUALIFICATIONS', 'RECOVER_PASTORAL_QUALIFICATIONS_012', 'REVERT_BULK_PASTORAL_QUALIFICATIONS')
+    ORDER BY created_at DESC
+    LIMIT 20
+  `).all() as any[];
+
+  const history = rows.map((r) => {
+    let details = {};
+    try {
+      details = JSON.parse(r.details_json || '{}');
+    } catch {}
+    return {
+      id: r.id,
+      user_name: r.user_name,
+      action: r.action,
+      created_at: r.created_at,
+      details,
+    };
+  });
+
+  return res.json(history);
+});
+
+// POST /api/platform/members/bulk-qualifications/revert (Recuperar / Desfazer Alteração em Lote via Histórico)
+platformRouter.post('/members/bulk-qualifications/revert', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  const { auditId } = req.body;
+  if (!auditId) {
+    return res.status(400).json({ error: 'Informe o identificador da operação de auditoria (auditId).' });
+  }
+
+  const auditRow = db.prepare(`
+    SELECT * FROM audit_logs
+    WHERE id = ? AND action IN ('BULK_UPDATE_PASTORAL_QUALIFICATIONS', 'RECOVER_PASTORAL_QUALIFICATIONS_012')
+  `).get(auditId) as any;
+
+  if (!auditRow) {
+    return res.status(404).json({ error: 'Registro de operação em lote não encontrado no histórico.' });
+  }
+
+  let details: any = {};
+  try {
+    details = JSON.parse(auditRow.details_json || '{}');
+  } catch {}
+
+  const changes: Array<{ id: string; name: string; before: string[]; after: string[] }> = details.changes || [];
+  if (changes.length === 0) {
+    return res.status(400).json({ error: 'Este registro não possui alterações reversíveis.' });
+  }
+
+  const now = new Date().toISOString();
+  const selectMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?');
+  const updateMember = db.prepare('UPDATE pastoral_members SET qualifications_json = ?, updated_at = ? WHERE id = ?');
+  const restoredMembers: any[] = [];
+
+  const tx = db.transaction(() => {
+    for (const ch of changes) {
+      const existing = selectMember.get(ch.id) as any;
+      if (!existing) continue;
+      const restoredQuals = Array.isArray(ch.before) ? ch.before : [];
+      updateMember.run(JSON.stringify(restoredQuals), now, ch.id);
+      const refreshed = selectMember.get(ch.id) as any;
+      restoredMembers.push({
+        ...refreshed,
+        qualifications: restoredQuals,
+        skills: JSON.parse(refreshed.skills_json || '[]'),
+      });
+    }
+
+    db.prepare(`
+      INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'REVERT_BULK_PASTORAL_QUALIFICATIONS', 'pastoral_member', ?, ?, ?)
+    `).run(
+      'aud_rev_' + crypto.randomBytes(6).toString('hex'),
+      req.user?.id,
+      req.user?.name || 'Coordenação',
+      auditId,
+      JSON.stringify({ revertedAuditId: auditId, restoredCount: restoredMembers.length }),
+      now
+    );
+  });
+
+  tx();
+
+  return res.json({
+    success: true,
+    restoredCount: restoredMembers.length,
+    restoredMembers,
+    message: `Operação #${auditId} revertida com sucesso (${restoredMembers.length} missionários restaurados).`,
   });
 });
 

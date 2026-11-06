@@ -313,6 +313,21 @@ export async function runPastoralQualificationsFullTests() {
   assert.strictEqual(pixData.pix_key, '(61)992568165');
   console.log('✓ [TESTE 21] Preservação integral dos 19 pedidos (R$ 855,00) e Chave Pix oficial (61)992568165: PASSOU');
 
+  // Restaurar estado original exato de Pedro (7 habilitações, sem Música, e nome/telefone/aniversário originais)
+  db.prepare(`
+    UPDATE pastoral_members
+    SET name = ?, display_name = ?, phone = ?, birth_day = ?, birth_month = ?, qualifications_json = ?, updated_at = ?
+    WHERE id = 'pmem_pedro'
+  `).run(
+    pedroInitial.name,
+    pedroInitial.display_name,
+    pedroInitial.phone,
+    pedroInitial.birth_day,
+    pedroInitial.birth_month,
+    pedroInitial.qualifications_json,
+    pedroInitial.updated_at
+  );
+
   console.log('\n========================================================================');
   console.log('🎉 TODOS OS 21 TESTES PASSARAM COM 100% DE SUCESSO!');
   console.log('========================================================================\n');

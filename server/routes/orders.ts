@@ -237,6 +237,21 @@ ordersRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']),
     return res.status(400).json({ error: 'O pedido precisa ter ao menos uma camiseta informada.' });
   }
 
+  const campaignRow = db.prepare('SELECT id, name, default_price_cents FROM campaigns WHERE id = ?').get(campaign_id) as any;
+  const campaignDefaultPriceCents = campaignRow?.default_price_cents ? Number(campaignRow.default_price_cents) : 4500;
+
+  for (const it of items) {
+    if (it.unit_price_cents !== undefined && it.unit_price_cents !== null && it.unit_price_cents !== '') {
+      const parsedUnit = Math.round(Number(it.unit_price_cents));
+      if (!Number.isFinite(parsedUnit) || parsedUnit <= 0) {
+        return res.status(400).json({ error: 'O preço unitário da camiseta deve ser maior que zero.' });
+      }
+    }
+    if (it.quantity !== undefined && (Number(it.quantity) <= 0 || !Number.isFinite(Number(it.quantity)))) {
+      return res.status(400).json({ error: 'A quantidade de camisetas deve ser maior que zero.' });
+    }
+  }
+
   const orderId = 'ord_' + crypto.randomBytes(6).toString('hex');
   const now = new Date().toISOString();
   const initialProdStatus = VALID_PRODUCTION_STATUSES.includes(production_status)
@@ -298,10 +313,20 @@ ordersRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']),
       resolvedBuyerName = legacyBuyer.name;
     }
 
-    // 2. Calculate items total
+    // 2. Calculate items total using campaign default_price_cents or authorized custom unit_price_cents
+    const customPriceDiffs: Array<{ model: string; size: string; default_price_cents: number; custom_unit_price_cents: number }> = [];
     for (const it of items) {
-      const qty = parseInt(it.quantity) || 1;
-      const unit = parseInt(it.unit_price_cents) || 4500;
+      const qty = Math.max(1, parseInt(it.quantity) || 1);
+      const hasCustomPrice = it.unit_price_cents !== undefined && it.unit_price_cents !== null && it.unit_price_cents !== '';
+      const unit = hasCustomPrice ? Math.round(Number(it.unit_price_cents)) : campaignDefaultPriceCents;
+      if (unit !== campaignDefaultPriceCents) {
+        customPriceDiffs.push({
+          model: it.model || 'Tradicional',
+          size: it.size || 'M',
+          default_price_cents: campaignDefaultPriceCents,
+          custom_unit_price_cents: unit,
+        });
+      }
       totalAmountCents += (qty * unit);
     }
 
@@ -351,8 +376,9 @@ ordersRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']),
 
     for (const it of items) {
       const itemId = 'itm_' + crypto.randomBytes(6).toString('hex');
-      const qty = parseInt(it.quantity) || 1;
-      const unit = parseInt(it.unit_price_cents) || 4500;
+      const qty = Math.max(1, parseInt(it.quantity) || 1);
+      const hasCustomPrice = it.unit_price_cents !== undefined && it.unit_price_cents !== null && it.unit_price_cents !== '';
+      const unit = hasCustomPrice ? Math.round(Number(it.unit_price_cents)) : campaignDefaultPriceCents;
       insertItem.run(
         itemId,
         orderId,
@@ -362,6 +388,24 @@ ordersRouter.post('/', authenticateToken, requireRole(['admin', 'coordenador']),
         qty,
         unit,
         qty * unit,
+        now
+      );
+    }
+
+    if (customPriceDiffs.length > 0) {
+      db.prepare(`
+        INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+        VALUES (?, ?, ?, 'ORDER_CUSTOM_PRICE_APPLIED', 'order', ?, ?, ?)
+      `).run(
+        'aud_price_' + crypto.randomBytes(6).toString('hex'),
+        req.user?.id || null,
+        req.user?.name || 'Coordenação',
+        orderId,
+        JSON.stringify({
+          campaign_id,
+          campaign_default_price_cents: campaignDefaultPriceCents,
+          custom_items: customPriceDiffs,
+        }),
         now
       );
     }

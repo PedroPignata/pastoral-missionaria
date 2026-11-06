@@ -14,10 +14,10 @@ export interface Campaign {
   id: string;
   name: string;
   description?: string;
-  start_date?: string;
-  end_date?: string;
+  start_date?: string | null;
+  end_date?: string | null;
   default_price_cents: number;
-  status: 'planejamento' | 'aberta' | 'encerrada' | 'arquivada';
+  status: 'planejamento' | 'aberta' | 'em_producao' | 'encerrada' | 'arquivada';
   is_active: number;
   orders_count?: number;
   tshirts_count?: number;

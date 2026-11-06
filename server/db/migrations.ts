@@ -1353,7 +1353,7 @@ export function runMigrations() {
         db.exec('ALTER TABLE orders ADD COLUMN historical_buyer_name TEXT');
       }
 
-      // 3. Garantir integridade absoluta de pmem_pedro e pmem_fernanda (inclusive após cold start)
+      // 3. Garantir integridade absoluta de pmem_pedro e pmem_fernanda (sem sobrescrever habilitações já salvas)
       db.prepare(`
         UPDATE pastoral_members
         SET name = 'Pedro Rafael Santos Pignata (Coordenador)',
@@ -1361,11 +1361,7 @@ export function runMigrations() {
             email = COALESCE(NULLIF(email, ''), 'pedropignata2@gmail.com'),
             phone = COALESCE(NULLIF(phone, ''), '(61) 99256-8165'),
             pastoral_role = 'coordenador',
-            qualifications_json = CASE
-              WHEN qualifications_json IS NULL OR qualifications_json = '[]' OR length(qualifications_json) < 70
-              THEN ?
-              ELSE qualifications_json
-            END,
+            qualifications_json = COALESCE(qualifications_json, ?),
             user_id = COALESCE(user_id, 'user_pedro_coordinator'),
             updated_at = ?
         WHERE id = 'pmem_pedro'
@@ -1378,11 +1374,7 @@ export function runMigrations() {
             email = COALESCE(NULLIF(email, ''), 'fernandasouto7826@gmail.com'),
             phone = COALESCE(NULLIF(phone, ''), '(61) 98305-5751'),
             pastoral_role = 'coordenador',
-            qualifications_json = CASE
-              WHEN qualifications_json IS NULL OR qualifications_json = '[]' OR length(qualifications_json) < 70
-              THEN ?
-              ELSE qualifications_json
-            END,
+            qualifications_json = COALESCE(qualifications_json, ?),
             user_id = COALESCE(user_id, 'user_fernanda_coordinator'),
             updated_at = ?
         WHERE id = 'pmem_fernanda'
@@ -1465,6 +1457,145 @@ export function runMigrations() {
     console.log('✓ Migração 011_master_11_0_unified_identity_production_recovery_and_privacy aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 012: Recuperação Auditada das Habilitações Pastorais e Remoção de Atribuições Automáticas Indevidas
+  // ----------------------------------------------------
+  if (!applied.has('012_master_12_0_recover_manual_qualifications_and_stop_auto_restore')) {
+    const migrate012 = db.transaction(() => {
+      const now = new Date().toISOString();
+
+      const all8 = [
+        'Intercessão',
+        'Pregação',
+        'Formação',
+        'Testemunho',
+        'Música',
+        'Condução de oração',
+        'Animação',
+        'Apoio',
+      ];
+      const veteran7NoMusic = [
+        'Intercessão',
+        'Pregação',
+        'Formação',
+        'Testemunho',
+        'Condução de oração',
+        'Animação',
+        'Apoio',
+      ];
+      const musicOnly = ['Música'];
+      const emptyQuals: string[] = [];
+
+      // Mapa oficial recuperado da auditoria de vídeo (06/11/2026 12:58–13:05) + regras da coordenação (Seção 3):
+      // 1. Coordenadores (Fernanda: 8 funções; Pedro: 7 funções sem Música, conforme edição manual às 13:01)
+      // 2. Missionários Veteranos com Música confirmada (8 funções): Jonas Emanuell, JoãoGabriel, Miriam, Pedro Henrique, Raquel, Rayane, Samuel Aranha, Tiago
+      // 3. Missionários Veteranos sem Música (7 funções): Angélica (Angel), Daniel, Gabriel (The Baios), Iris Maria, José Vitor (Zé), Kayla Lino, Rodrigo De Oliveira
+      // 4. Membros em formação autorizados para Música (["Música"]): Állan Fross (13:05), Victor (13:04)
+      // 5. Membros em formação sem habilitações automáticas ([]): demais 20 membros em formação
+      const recoveryRules: Array<{ matchNames: string[]; quals: string[] }> = [
+        // Coordenadores
+        { matchNames: ['Fernanda Souto (Coordenadora)', 'Fernanda Souto', 'Fernanda'], quals: all8 },
+        { matchNames: ['Pedro Rafael Santos Pignata (Coordenador)', 'Pedro Rafael Santos Pignata', 'Pedro Rafael'], quals: veteran7NoMusic },
+
+        // Missionários Veteranos com Música (8 funções)
+        { matchNames: ['Jonas Emanuell'], quals: all8 },
+        { matchNames: ['JoãoGabriel', 'João Gabriel'], quals: all8 },
+        { matchNames: ['Miriam'], quals: all8 },
+        { matchNames: ['Pedro Henrique'], quals: all8 },
+        { matchNames: ['Raquel'], quals: all8 },
+        { matchNames: ['Rayane'], quals: all8 },
+        { matchNames: ['Samuel Aranha'], quals: all8 },
+        { matchNames: ['Tiago'], quals: all8 },
+
+        // Missionários Veteranos sem Música (7 funções)
+        { matchNames: ['Angélica (Angel)', 'Angélica'], quals: veteran7NoMusic },
+        { matchNames: ['Daniel'], quals: veteran7NoMusic },
+        { matchNames: ['Gabriel (The Baios)', 'Gabriel'], quals: veteran7NoMusic },
+        { matchNames: ['Iris Maria'], quals: veteran7NoMusic },
+        { matchNames: ['José Vitor (Zé)', 'José Vitor'], quals: veteran7NoMusic },
+        { matchNames: ['Kayla Lino'], quals: veteran7NoMusic },
+        { matchNames: ['Rodrigo De Oliveira'], quals: veteran7NoMusic },
+
+        // Membros em Formação com Música confirmada (["Música"])
+        { matchNames: ['Állan Fross', 'Állan'], quals: musicOnly },
+        { matchNames: ['Victor'], quals: musicOnly },
+
+        // Membros em Formação sem habilitações automáticas ([])
+        { matchNames: ['Alfredo'], quals: emptyQuals },
+        { matchNames: ['Erick Kilbert'], quals: emptyQuals },
+        { matchNames: ['Jamilly'], quals: emptyQuals },
+        { matchNames: ['João Miguel'], quals: emptyQuals },
+        { matchNames: ['Júlia Viana', 'Júlia'], quals: emptyQuals },
+        { matchNames: ['Laysa'], quals: emptyQuals },
+        { matchNames: ['Letícia Ingrid', 'Letícia'], quals: emptyQuals },
+        { matchNames: ['Ludmilla'], quals: emptyQuals },
+        { matchNames: ['Lyvia Maria', 'Lyvia'], quals: emptyQuals },
+        { matchNames: ['Manuella'], quals: emptyQuals },
+        { matchNames: ['Maria Eduarda Fernandes', 'Duda Fernandes'], quals: emptyQuals },
+        { matchNames: ['Maria Eduarda Soares', 'Duda Soares'], quals: emptyQuals },
+        { matchNames: ['Maria Júlia'], quals: emptyQuals },
+        { matchNames: ['Maria Luiza Lima'], quals: emptyQuals },
+        { matchNames: ['Maria Luiza Neres', 'Malu Neres'], quals: emptyQuals },
+        { matchNames: ['Mariane'], quals: emptyQuals },
+        { matchNames: ['Saulo'], quals: emptyQuals },
+        { matchNames: ['Victor Cardoso'], quals: emptyQuals },
+        { matchNames: ['Vinícius', 'Vini'], quals: emptyQuals },
+        { matchNames: ['Wellington Santos'], quals: emptyQuals },
+      ];
+
+      const allMembers = db.prepare('SELECT id, name, display_name, qualifications_json FROM pastoral_members').all() as any[];
+      const updateStmt = db.prepare('UPDATE pastoral_members SET qualifications_json = ?, updated_at = ? WHERE id = ?');
+      const changedRecords: Array<{ id: string; name: string; before: string[]; after: string[] }> = [];
+
+      for (const member of allMembers) {
+        const rule = recoveryRules.find((r) =>
+          r.matchNames.some(
+            (mn) =>
+              member.name.trim().toLowerCase() === mn.trim().toLowerCase() ||
+              (member.display_name || '').trim().toLowerCase() === mn.trim().toLowerCase()
+          )
+        );
+        if (rule) {
+          const nextJson = JSON.stringify(rule.quals);
+          if (member.qualifications_json !== nextJson) {
+            let beforeArr: string[] = [];
+            try {
+              beforeArr = JSON.parse(member.qualifications_json || '[]');
+            } catch {}
+            updateStmt.run(nextJson, now, member.id);
+            changedRecords.push({
+              id: member.id,
+              name: member.name,
+              before: beforeArr,
+              after: rule.quals,
+            });
+          }
+        }
+      }
+
+      db.prepare(`
+        INSERT OR IGNORE INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+        VALUES (?, 'user_pedro_coordinator', 'Coordenação (Auditoria 012)', 'RECOVER_PASTORAL_QUALIFICATIONS_012', 'pastoral_member', 'bulk_recovery_012', ?, ?)
+      `).run(
+        'aud_quals_recovery_012',
+        JSON.stringify({
+          analyzedCount: allMembers.length,
+          updatedCount: changedRecords.length,
+          changes: changedRecords,
+        }),
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('012_master_12_0_recover_manual_qualifications_and_stop_auto_restore', 'Recuperação Auditada das Habilitações Pastorais e Remoção de Atribuições Automáticas Indevidas', datetime('now'))
+      `).run();
+    });
+
+    migrate012();
+    console.log('✓ Migração 012_master_12_0_recover_manual_qualifications_and_stop_auto_restore aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
@@ -1542,8 +1673,8 @@ export function seedEcosystemData() {
           bm.name,
           bm.display_name,
           'membro',
-          JSON.stringify(['Intercessão', 'Apoio']),
-          JSON.stringify(['Intercessão', 'Evangelização']),
+          JSON.stringify([]),
+          JSON.stringify([]),
           bm.created_at || now,
           now
         );
