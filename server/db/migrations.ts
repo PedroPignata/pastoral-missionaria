@@ -1267,6 +1267,60 @@ export function runMigrations() {
     console.log('✓ Migração 009_master_9_0_universal_sync_39_pastoral_members aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 010: Deduplicação e Consolidação dos Coordenadores nos 39 Missionários Oficiais
+  // ----------------------------------------------------
+  if (!applied.has('010_master_10_0_deduplicate_coordinators_and_lock_39')) {
+    const migrate010 = db.transaction(() => {
+      const now = new Date().toISOString();
+      const all8Qualifications = JSON.stringify([
+        'Intercessão', 'Pregação', 'Formação', 'Testemunho',
+        'Música', 'Condução de oração', 'Animação', 'Apoio'
+      ]);
+
+      // 1. Consolidar Pedro em pmem_pedro
+      db.prepare(`
+        UPDATE pastoral_members
+        SET name = 'Pedro Rafael Santos Pignata (Coordenador)',
+            display_name = 'Pedro',
+            email = 'pedropignata2@gmail.com',
+            phone = '(61) 99256-8165',
+            pastoral_role = 'coordenador',
+            qualifications_json = ?,
+            user_id = 'user_pedro_coordinator',
+            updated_at = ?
+        WHERE id = 'pmem_pedro'
+      `).run(all8Qualifications, now);
+
+      db.prepare(`DELETE FROM pastoral_members WHERE id = 'pmem_pedro_rafael_santos_pignata__c'`).run();
+
+      // 2. Consolidar Fernanda em pmem_fernanda
+      db.prepare(`
+        UPDATE pastoral_members
+        SET name = 'Fernanda Souto (Coordenadora)',
+            display_name = 'Fernanda',
+            email = 'fernandasouto7826@gmail.com',
+            phone = '(61) 98305-5751',
+            pastoral_role = 'coordenador',
+            qualifications_json = ?,
+            user_id = 'user_fernanda_coordinator',
+            updated_at = ?
+        WHERE id = 'pmem_fernanda'
+      `).run(all8Qualifications, now);
+
+      db.prepare(`DELETE FROM pastoral_members WHERE id = 'pmem_fernanda_souto__coordenadora_'`).run();
+
+      // Registrar migração 010
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('010_master_10_0_deduplicate_coordinators_and_lock_39', 'Deduplicação e Consolidação dos Coordenadores nos 39 Missionários Oficiais', datetime('now'))
+      `).run();
+    });
+
+    migrate010();
+    console.log('✓ Migração 010_master_10_0_deduplicate_coordinators_and_lock_39 aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
