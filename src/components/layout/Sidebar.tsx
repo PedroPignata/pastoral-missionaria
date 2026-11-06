@@ -98,7 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Vida Missionária',
       items: [
         { key: 'painel_missionario', label: 'Painel Missionário', icon: Sparkles },
-        { key: 'comunidade', label: 'Comunidade Missionária', icon: Users, badge: 'Novo' },
+        { key: 'comunidade', label: 'Comunidade Missionária', icon: Users },
         { key: 'diretorio_membros', label: 'Membros', icon: Users },
         { key: 'calendario_2027', label: 'Calendário', icon: Calendar },
         { key: 'missoes_envios', label: 'Missões & Envios', icon: Send },

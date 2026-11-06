@@ -57,20 +57,29 @@ export const DiretorioMembrosView: React.FC = () => {
   }, []);
 
   const filteredMembers = useMemo(() => {
-    return members.filter((m) => {
-      const term = search.toLowerCase().trim();
-      const matchesSearch =
-        !term ||
-        m.name.toLowerCase().includes(term) ||
-        (m.display_name || '').toLowerCase().includes(term) ||
-        (m.phone || '').includes(term);
+    return members
+      .filter((m) => {
+        const term = search.toLowerCase().trim();
+        const matchesSearch =
+          !term ||
+          m.name.toLowerCase().includes(term) ||
+          (m.display_name || '').toLowerCase().includes(term) ||
+          (m.phone || '').includes(term);
 
-      const matchesFilter =
-        filterMode === 'todos' ||
-        (Array.isArray(m.qualifications) && m.qualifications.includes('Música'));
+        const matchesFilter =
+          filterMode === 'todos' ||
+          (Array.isArray(m.qualifications) && m.qualifications.includes('Música'));
 
-      return matchesSearch && matchesFilter;
-    });
+        return matchesSearch && matchesFilter;
+      })
+      .sort((a, b) => {
+        const isCoordA = a.pastoral_role === 'coordenador' || a.pastoral_role === 'admin' ? 0 : 1;
+        const isCoordB = b.pastoral_role === 'coordenador' || b.pastoral_role === 'admin' ? 0 : 1;
+        if (isCoordA !== isCoordB) return isCoordA - isCoordB;
+        return cleanDisplayName(a.name).localeCompare(cleanDisplayName(b.name), 'pt-BR', {
+          sensitivity: 'base',
+        });
+      });
   }, [members, search, filterMode]);
 
   const handleCopyPhone = (id: string, phone: string) => {
@@ -184,13 +193,12 @@ export const DiretorioMembrosView: React.FC = () => {
             const cleanFull = cleanDisplayName(member.name);
             const cleanShort = cleanDisplayName(member.display_name || member.name);
 
-            const initials = cleanFull
-              .split(' ')
-              .filter(Boolean)
-              .map((n) => n[0])
-              .slice(0, 2)
-              .join('')
-              .toUpperCase();
+            const initial =
+              cleanFull
+                .replace(/\s*\([^)]*\)\s*/g, ' ')
+                .replace(/[^a-zA-ZÀ-ÿ]/g, '')
+                .charAt(0)
+                .toUpperCase() || 'M';
 
             return (
               <div
@@ -217,7 +225,7 @@ export const DiretorioMembrosView: React.FC = () => {
                           : 'bg-[#FAF3E9] text-[#3C2D29] border border-[#E5D5C5]'
                       }`}
                     >
-                      {initials}
+                      {initial}
                     </div>
                   )}
 

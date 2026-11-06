@@ -1053,6 +1053,11 @@ platformRouter.get('/members', authenticateToken, (req: AuthenticatedRequest, re
       availability: JSON.parse(m.availability_json || '{}'),
       welcome_checklist: JSON.parse(m.welcome_checklist_json || '{}'),
     };
+  }).sort((a: any, b: any) => {
+    const isCoordA = a.pastoral_role === 'coordenador' || a.pastoral_role === 'admin' ? 0 : 1;
+    const isCoordB = b.pastoral_role === 'coordenador' || b.pastoral_role === 'admin' ? 0 : 1;
+    if (isCoordA !== isCoordB) return isCoordA - isCoordB;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
   });
 
   let filtered = rows;
@@ -1110,6 +1115,11 @@ platformRouter.get('/members/directory', authenticateToken, (req: AuthenticatedR
       is_self: isSelf,
       qualifications: JSON.parse(m.qualifications_json || '[]'),
     };
+  }).sort((a: any, b: any) => {
+    const isCoordA = a.pastoral_role === 'coordenador' || a.pastoral_role === 'admin' ? 0 : 1;
+    const isCoordB = b.pastoral_role === 'coordenador' || b.pastoral_role === 'admin' ? 0 : 1;
+    if (isCoordA !== isCoordB) return isCoordA - isCoordB;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
   });
 
   let filtered = rows;

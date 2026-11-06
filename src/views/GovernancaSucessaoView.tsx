@@ -576,6 +576,11 @@ export const GovernancaSucessaoView: React.FC = () => {
       if (memberFilterTab === 'coordenadores') return m.pastoral_role === 'coordenador';
       if (memberFilterTab === 'membros') return m.pastoral_role !== 'coordenador';
       return true;
+    }).sort((a, b) => {
+      const isCoordA = a.pastoral_role === 'coordenador' || a.pastoral_role === 'admin' ? 0 : 1;
+      const isCoordB = b.pastoral_role === 'coordenador' || b.pastoral_role === 'admin' ? 0 : 1;
+      if (isCoordA !== isCoordB) return isCoordA - isCoordB;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
     });
   }, [activePastoralMembers, memberSearch, memberFilterTab]);
 

@@ -1596,6 +1596,37 @@ export function runMigrations() {
     console.log('✓ Migração 012_master_12_0_recover_manual_qualifications_and_stop_auto_restore aplicada com sucesso.');
   }
 
+  // ----------------------------------------------------
+  // MIGRAÇÃO 013: Preservação de Aniversários Cadastrados (Pedro e João Miguel)
+  // ----------------------------------------------------
+  if (!applied.has('013_master_13_0_preserve_registered_birthdays')) {
+    const migrate013 = db.transaction(() => {
+      db.prepare(`
+        UPDATE pastoral_members
+        SET birth_day = COALESCE(birth_day, 23),
+            birth_month = COALESCE(birth_month, 1),
+            birth_year = COALESCE(birth_year, 2006)
+        WHERE id = 'pmem_pedro'
+      `).run();
+
+      db.prepare(`
+        UPDATE pastoral_members
+        SET birth_day = COALESCE(birth_day, 4),
+            birth_month = COALESCE(birth_month, 12),
+            birth_year = COALESCE(birth_year, 2004)
+        WHERE name = 'João Miguel'
+      `).run();
+
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('013_master_13_0_preserve_registered_birthdays', 'Preservação de Aniversários Oficiais Cadastrados na Governança', datetime('now'))
+      `).run();
+    });
+
+    migrate013();
+    console.log('✓ Migração 013_master_13_0_preserve_registered_birthdays aplicada com sucesso.');
+  }
+
   // Idempotent Seed of Official Institutional Data
   seedEcosystemData();
 }
