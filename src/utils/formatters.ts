@@ -11,7 +11,12 @@ export function formatCurrency(cents: number | undefined | null): string {
 export function formatDate(dateString: string | undefined | null): string {
   if (!dateString) return '-';
   try {
-    const date = new Date(dateString);
+    const trimmed = dateString.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [y, m, d] = trimmed.split('-');
+      return `${d}/${m}/${y}`;
+    }
+    const date = new Date(trimmed);
     if (isNaN(date.getTime())) return dateString;
     return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   } catch {

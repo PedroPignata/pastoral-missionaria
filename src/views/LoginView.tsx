@@ -17,7 +17,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onOpenPublicPortal }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPublicPortal, setShowPublicPortal] = useState(false);
-  const [showLocalLogin, setShowLocalLogin] = useState(false);
+  const [showLocalLogin, setShowLocalLogin] = useState(true);
+  const [gsiReady, setGsiReady] = useState(false);
 
   // Google OAuth State
   const [googleClientId, setGoogleClientId] = useState(DEFAULT_GOOGLE_CLIENT_ID);
@@ -80,14 +81,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onOpenPublicPortal }) => {
           const btnEl = document.getElementById('google-official-btn');
           if (btnEl) {
             btnEl.innerHTML = '';
+            const btnWidth = Math.min(300, Math.max(240, (window.innerWidth || 360) - 80));
             win.google.accounts.id.renderButton(btnEl, {
               theme: 'outline',
               size: 'large',
-              width: 320,
+              width: btnWidth,
               text: 'signin_with',
               shape: 'pill',
               logo_alignment: 'left',
             });
+            setGsiReady(true);
           }
         } catch (e) {
           console.error('Erro ao inicializar Google Identity Services:', e);
@@ -189,12 +192,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onOpenPublicPortal }) => {
           {/* Primary Action: Google Login */}
           <div className="space-y-3 text-center">
             <p className="text-xs text-zinc-600 font-medium">
-              Acesso exclusivo para Missionários e Coordenação com a conta Google autorizada:
+              Acesso para Missionários e Coordenação:
             </p>
 
             {googleClientId ? (
-              <div className="flex justify-center min-h-[44px]">
-                <div id="google-official-btn" className="flex justify-center" />
+              <div className="space-y-2">
+                <div className="flex justify-center min-h-[44px]">
+                  <div id="google-official-btn" className="flex justify-center" />
+                </div>
+                {!gsiReady && (
+                  <button
+                    type="button"
+                    onClick={() => setShowGoogleConfigModal(true)}
+                    className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-300 shadow-xs flex items-center justify-center gap-2 transition-all hover:border-pastoral-dourado"
+                  >
+                    <span>Entrar com e-mail Google autorizado</span>
+                  </button>
+                )}
               </div>
             ) : (
               <button
@@ -223,13 +237,75 @@ export const LoginView: React.FC<LoginViewProps> = ({ onOpenPublicPortal }) => {
                 <span>Entrar com Google</span>
               </button>
             )}
+          </div>
 
-            <div className="p-3 bg-pastoral-creme/60 rounded-xl border border-pastoral-dourado/20 text-[11px] text-pastoral-cafe/80 text-left flex items-start gap-2">
-              <ShieldCheck className="w-4 h-4 text-pastoral-dourado flex-shrink-0 mt-0.5" />
-              <span>
-                <strong>Atenção:</strong> Você <u>não precisa digitar sua senha do Google</u> no site. A autenticação é feita diretamente com a Google pelo botão acima.
+          {/* Acesso Direto com E-mail e Senha da Pastoral (Funciona em qualquer PC, Windows, Linux ou Celular) */}
+          <div className="pt-2 border-t border-zinc-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-pastoral-cafe uppercase tracking-wider">
+                Ou entrar com E-mail e Senha da Pastoral
               </span>
+              <button
+                type="button"
+                onClick={() => setShowLocalLogin(!showLocalLogin)}
+                className="text-[11px] text-zinc-400 hover:text-pastoral-cafe transition-colors underline cursor-pointer"
+              >
+                {showLocalLogin ? 'Ocultar' : 'Mostrar'}
+              </button>
             </div>
+
+            {showLocalLogin && (
+              <form onSubmit={handleSubmit} className="p-3.5 bg-pastoral-creme/40 rounded-2xl border border-pastoral-dourado/25 text-left space-y-3 animate-fade-in">
+                <div>
+                  <label className="block text-[10px] font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
+                    Seu E-mail Cadastrado
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      placeholder="seuemail@gmail.com"
+                      className="w-full pl-8 pr-3 py-2 text-xs border border-zinc-300 rounded-lg bg-white focus:outline-none focus:border-pastoral-dourado"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
+                    Senha da Plataforma
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      placeholder="••••••••"
+                      className="w-full pl-8 pr-3 py-2 text-xs border border-zinc-300 rounded-lg bg-white focus:outline-none focus:border-pastoral-dourado"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-pastoral-cafe hover:bg-pastoral-profundo transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <span>{isLoading ? 'Entrando...' : 'Entrar na Plataforma'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            )}
           </div>
 
           {/* Destaque Público: Conhecer a Pastoral Missionária */}
@@ -251,68 +327,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onOpenPublicPortal }) => {
             <p className="text-[10px] text-zinc-400 text-center mt-1">
               Consulte nosso histórico, padroeiro São Padre Pio, metas e eventos abertos sem precisar de login.
             </p>
-          </div>
-
-          {/* Acesso Local de Manutenção Técnica (Colapsável) */}
-          <div className="pt-2 border-t border-zinc-100 text-center">
-            <button
-              type="button"
-              onClick={() => setShowLocalLogin(!showLocalLogin)}
-              className="text-[11px] text-zinc-400 hover:text-pastoral-cafe transition-colors underline cursor-pointer"
-            >
-              {showLocalLogin ? 'Ocultar acesso de manutenção técnica' : 'Acesso técnico local com senha do sistema'}
-            </button>
-
-            {showLocalLogin && (
-              <form onSubmit={handleSubmit} className="mt-3 p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200 text-left space-y-3 animate-fade-in">
-                <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-900 leading-tight">
-                  ⚠️ <strong>Apenas para suporte técnico offline:</strong> Não use a sua senha do Gmail aqui. Esta opção utiliza credenciais locais do servidor.
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
-                    E-mail do Sistema
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@pastoralmissionaria.com.br"
-                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-pastoral-cafe uppercase tracking-wider mb-1">
-                    Senha Local do Sistema
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-2 px-3 rounded-lg text-xs font-bold text-white bg-pastoral-cafe hover:bg-pastoral-profundo transition-all flex items-center justify-center gap-1.5"
-                >
-                  <span>{isLoading ? 'Entrando...' : 'Entrar como Suporte Técnico'}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </form>
-            )}
           </div>
         </div>
 

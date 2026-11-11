@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -198,17 +198,20 @@ export const GovernancaSucessaoView: React.FC = () => {
   const [isSavingQuals, setIsSavingQuals] = useState(false);
   const [qualsModalError, setQualsModalError] = useState('');
   const [isQualificationsDirty, setIsQualificationsDirty] = useState(false);
+  const qualsModalDirtyRef = useRef<boolean>(false);
+  const editModalDirtyRef = useRef<boolean>(false);
 
   const handleOpenQualsModal = async (member: any) => {
     setQualsModalError('');
+    qualsModalDirtyRef.current = false;
     setQualsModalMember(member);
     const initialQuals = Array.isArray(member.qualifications) ? [...member.qualifications] : [];
     setSelectedQuals(initialQuals);
 
-    // Consulta dados mais recentes diretamente do backend para garantir a fonte de verdade
+    // Consulta dados mais recentes diretamente do backend apenas se o usuário ainda não clicou
     try {
       const fresh = await api.getPastoralMember(member.id);
-      if (fresh && Array.isArray(fresh.qualifications)) {
+      if (!qualsModalDirtyRef.current && fresh && Array.isArray(fresh.qualifications)) {
         setSelectedQuals([...fresh.qualifications]);
       }
     } catch {
@@ -242,8 +245,9 @@ export const GovernancaSucessaoView: React.FC = () => {
       showMessage(res.message || `Habilitações de ${qualsModalMember.display_name || qualsModalMember.name} salvas com sucesso!`);
       setQualsModalMember(null);
 
-      // Revalidação assíncrona em segundo plano
+      // Revalidação assíncrona em segundo plano + sincronização global
       loadGovernance();
+      window.dispatchEvent(new CustomEvent('pastoral:data-mutated'));
     } catch (err: any) {
       const msg = err.message || 'Falha ao salvar habilitações. Tente novamente.';
       setQualsModalError(msg);
@@ -272,6 +276,7 @@ export const GovernancaSucessaoView: React.FC = () => {
   };
 
   const handleOpenEditMemberModal = async (member: any) => {
+    editModalDirtyRef.current = false;
     setEditingMember(member);
     setFormName(member.name || '');
     setFormDisplayName(member.display_name || member.name || '');
@@ -288,10 +293,10 @@ export const GovernancaSucessaoView: React.FC = () => {
     setFormNotes(member.notes || '');
     setIsQualificationsDirty(false);
 
-    // Busca o registro mais recente do backend para garantir que não subscreva com dados defasados
+    // Busca o registro mais recente do backend sem sobrescrever edições em andamento
     try {
       const fresh = await api.getPastoralMember(member.id);
-      if (fresh) {
+      if (fresh && !editModalDirtyRef.current) {
         setFormName(fresh.name || '');
         setFormDisplayName(fresh.display_name || fresh.name || '');
         setFormEmail(fresh.email || '');
@@ -333,6 +338,7 @@ export const GovernancaSucessaoView: React.FC = () => {
       showMessage(`Missionário(a) ${formName.trim()} cadastrado com sucesso!`);
       setIsNewMemberModalOpen(false);
       loadGovernance();
+      window.dispatchEvent(new CustomEvent('pastoral:data-mutated'));
     } catch (err: any) {
       showMessage(err.message || 'Falha ao cadastrar missionário', true);
     } finally {
@@ -384,6 +390,7 @@ export const GovernancaSucessaoView: React.FC = () => {
       showMessage(`Dados de ${formName.trim()} atualizados com sucesso!`);
       setEditingMember(null);
       await loadGovernance();
+      window.dispatchEvent(new CustomEvent('pastoral:data-mutated'));
     } catch (err: any) {
       showMessage(err.message || 'Falha ao atualizar missionário', true);
     } finally {
@@ -1920,7 +1927,7 @@ export const GovernancaSucessaoView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditMember} className="space-y-3.5">
+            <form onSubmit={handleSaveEditMember} onChange={() => { editModalDirtyRef.current = true; }} className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-zinc-600 uppercase mb-1">
@@ -2071,6 +2078,7 @@ export const GovernancaSucessaoView: React.FC = () => {
                 <PastoralQualificationsEditor
                   selectedQualifications={formQualifications}
                   onChange={(quals) => {
+                    editModalDirtyRef.current = true;
                     setFormQualifications(quals);
                     setIsQualificationsDirty(true);
                   }}
@@ -2275,7 +2283,10 @@ export const GovernancaSucessaoView: React.FC = () => {
 
             <PastoralQualificationsEditor
               selectedQualifications={selectedQuals}
-              onChange={setSelectedQuals}
+              onChange={(quals) => {
+                qualsModalDirtyRef.current = true;
+                setSelectedQuals(quals);
+              }}
               disabled={isSavingQuals}
               variant="cards"
             />

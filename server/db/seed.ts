@@ -3,31 +3,36 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
 interface InitialOrderItem {
+  memberId: string;
+  orderId: string;
+  itemId: string;
   name: string;
+  displayName: string;
+  phone: string;
   model: 'Baby look' | 'Tradicional';
   size: 'PP' | 'P' | 'M' | 'G' | 'GG' | 'XG';
 }
 
 const INITIAL_MEMBERS_ORDERS: InitialOrderItem[] = [
-  { name: 'Maria Eduarda Fernandes', model: 'Baby look', size: 'G' },
-  { name: 'Lyvia', model: 'Baby look', size: 'M' },
-  { name: 'Állan', model: 'Tradicional', size: 'G' },
-  { name: 'Jamilly', model: 'Baby look', size: 'M' },
-  { name: 'Vini', model: 'Tradicional', size: 'G' },
-  { name: 'Laysa', model: 'Baby look', size: 'M' },
-  { name: 'Victor', model: 'Tradicional', size: 'GG' },
-  { name: 'Maria Luiza Neres', model: 'Baby look', size: 'M' },
-  { name: 'Júlia Viana', model: 'Baby look', size: 'G' },
-  { name: 'Letícia Ingrid', model: 'Baby look', size: 'M' },
-  { name: 'Saulo', model: 'Tradicional', size: 'G' },
-  { name: 'Manuella', model: 'Baby look', size: 'M' },
-  { name: 'Maria Júlia', model: 'Baby look', size: 'M' },
-  { name: 'Mariane', model: 'Baby look', size: 'M' },
-  { name: 'Maria Luiza Lima', model: 'Baby look', size: 'M' },
-  { name: 'Erick Kilbert', model: 'Tradicional', size: 'G' },
-  { name: 'Alfredo', model: 'Tradicional', size: 'GG' },
-  { name: 'Tiago', model: 'Tradicional', size: 'G' },
-  { name: 'Maria Eduarda Soares', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_22130dccbf2c', orderId: 'ord_6eeb7cf00170', itemId: 'itm_ff004f486fef', name: 'Maria Eduarda Fernandes', displayName: 'Duda Fernandes', phone: '(61) 99554-3396', model: 'Baby look', size: 'G' },
+  { memberId: 'mem_03d218edc79f', orderId: 'ord_1efa0ec4d2d3', itemId: 'itm_473256041c44', name: 'Lyvia Maria', displayName: 'Lyvia', phone: '(61) 99974-4803', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_168e4d89c0d7', orderId: 'ord_b8ed287ddd36', itemId: 'itm_265c91c96e68', name: 'Állan Fross', displayName: 'Állan', phone: '(61) 98188-8901', model: 'Tradicional', size: 'G' },
+  { memberId: 'mem_5b8f3d626749', orderId: 'ord_215af699304e', itemId: 'itm_71255950e197', name: 'Jamilly', displayName: 'Jamilly', phone: '(61) 99623-6153', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_aff2b7da59f2', orderId: 'ord_15234064b8d2', itemId: 'itm_ad208d2f5dcd', name: 'Vinícius', displayName: 'Vini', phone: '(61) 98427-3060', model: 'Tradicional', size: 'G' },
+  { memberId: 'mem_255524b003e3', orderId: 'ord_2a52e71a7bee', itemId: 'itm_767430ff3e81', name: 'Laysa', displayName: 'Laysa', phone: '(61) 99292-9981', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_37c8ca212b5b', orderId: 'ord_60c347bdce55', itemId: 'itm_845a4c8c47fd', name: 'Victor', displayName: 'Victor', phone: '(61) 99223-6379', model: 'Tradicional', size: 'GG' },
+  { memberId: 'mem_aeedddfde4d8', orderId: 'ord_a5c521d57e6e', itemId: 'itm_0d9726f0416b', name: 'Maria Luiza Neres', displayName: 'Malu Neres', phone: '(61) 99931-1322', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_cd7f61cc211e', orderId: 'ord_9aea2e3ec4b5', itemId: 'itm_a2450375d163', name: 'Júlia Viana', displayName: 'Júlia', phone: '(61) 99931-6382', model: 'Baby look', size: 'G' },
+  { memberId: 'mem_e8ca36ae2233', orderId: 'ord_b3cef19a189d', itemId: 'itm_7a4988071f7d', name: 'Letícia Ingrid', displayName: 'Letícia', phone: '(61) 99254-2925', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_c5ded13f55d7', orderId: 'ord_2ed9e808ad7b', itemId: 'itm_b87862dc8f4d', name: 'Saulo', displayName: 'Saulo', phone: '(61) 99657-8844', model: 'Tradicional', size: 'G' },
+  { memberId: 'mem_e026bf750415', orderId: 'ord_f69cfe789f6b', itemId: 'itm_dd0c37600ccb', name: 'Manuella', displayName: 'Manuella', phone: '(61) 99197-2286', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_83ce887a76ef', orderId: 'ord_c2cf281eac89', itemId: 'itm_6b03205d011b', name: 'Maria Júlia', displayName: 'Maria Júlia', phone: '(61) 99417-0991', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_0a4d580ce11f', orderId: 'ord_7d3a718f849c', itemId: 'itm_241dd1c75d30', name: 'Mariane', displayName: 'Mariane', phone: '(61) 98483-4684', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_d1b16e0ebcde', orderId: 'ord_7c5161308f11', itemId: 'itm_0182bd7540e5', name: 'Maria Luiza Lima', displayName: 'Maria Luiza', phone: '(61) 98208-9083', model: 'Baby look', size: 'M' },
+  { memberId: 'mem_718a8fc7413a', orderId: 'ord_0191867145fd', itemId: 'itm_7af851fa2220', name: 'Erick Kilbert', displayName: 'Erick', phone: '(61) 99523-5887', model: 'Tradicional', size: 'G' },
+  { memberId: 'mem_3a5d8b2854f7', orderId: 'ord_e535981ee443', itemId: 'itm_513bd34a4eee', name: 'Alfredo', displayName: 'Alfredo', phone: '(61) 99847-4821', model: 'Tradicional', size: 'GG' },
+  { memberId: 'mem_2a2e78c53bf9', orderId: 'ord_0c53215d8054', itemId: 'itm_75682979f52a', name: 'Tiago', displayName: 'Tiago', phone: '(61) 99852-6665', model: 'Tradicional', size: 'G' },
+  { memberId: 'mem_723733f98bb6', orderId: 'ord_67ad498bf87c', itemId: 'itm_fd79459b6750', name: 'Maria Eduarda Soares', displayName: 'Duda Soares', phone: '(61) 98302-6142', model: 'Baby look', size: 'M' },
 ];
 
 export function seedDatabase() {
@@ -35,7 +40,7 @@ export function seedDatabase() {
 
   const now = new Date().toISOString();
 
-  // 1. Seed Users (idempotent)
+  // 1. Seed Users (idempotent with deterministic IDs so sessions never break across restarts)
   const existingAdmin = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@pastoralmissionaria.com.br');
   if (!existingAdmin) {
     const adminHash = bcrypt.hashSync('pastoral@2026', 10);
@@ -43,12 +48,12 @@ export function seedDatabase() {
     const consultHash = bcrypt.hashSync('consulta@2026', 10);
 
     const insertUser = db.prepare(`
-      INSERT INTO users (id, name, email, password_hash, role, created_at, updated_at)
+      INSERT OR IGNORE INTO users (id, name, email, password_hash, role, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     insertUser.run(
-      crypto.randomUUID(),
+      'usr_admin_oficial',
       'Coordenação Missionária (Admin)',
       'admin@pastoralmissionaria.com.br',
       adminHash,
@@ -58,7 +63,7 @@ export function seedDatabase() {
     );
 
     insertUser.run(
-      crypto.randomUUID(),
+      'usr_coord_oficial',
       'Equipe de Coordenação',
       'coordenacao@pastoralmissionaria.com.br',
       coordHash,
@@ -68,7 +73,7 @@ export function seedDatabase() {
     );
 
     insertUser.run(
-      crypto.randomUUID(),
+      'usr_consulta_oficial',
       'Membro Observador (Consulta)',
       'consulta@pastoralmissionaria.com.br',
       consultHash,
@@ -188,12 +193,12 @@ export function seedDatabase() {
       let memberId = memberRow?.id;
 
       if (!memberId) {
-        memberId = 'mem_' + crypto.randomBytes(6).toString('hex');
+        memberId = item.memberId;
         insertMember.run(
           memberId,
           item.name,
-          item.name.split(' ')[0], // Display name is first name
-          '', // Phone initially empty as instructed
+          item.displayName || item.name.split(' ')[0],
+          item.phone || '',
           'Cadastro inicial da pastoral 2026',
           now,
           now
@@ -204,7 +209,7 @@ export function seedDatabase() {
       // Check if order already exists in this campaign
       const existingOrder = findOrder.get(campaign.id, memberId);
       if (!existingOrder) {
-        const orderId = 'ord_' + crypto.randomBytes(6).toString('hex');
+        const orderId = item.orderId;
         const unitPrice = 4500; // R$ 45,00
         const quantity = 1;
         const totalAmount = unitPrice * quantity;
@@ -225,7 +230,7 @@ export function seedDatabase() {
           now
         );
 
-        const orderItemId = 'itm_' + crypto.randomBytes(6).toString('hex');
+        const orderItemId = item.itemId;
         insertOrderItem.run(
           orderItemId,
           orderId,

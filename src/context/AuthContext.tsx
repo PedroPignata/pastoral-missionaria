@@ -19,24 +19,33 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('pastoral_auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [token, setToken] = useState<string | null>(localStorage.getItem('pastoral_auth_token'));
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
     if (!token) {
       setUser(null);
+      localStorage.removeItem('pastoral_auth_user');
       setIsLoading(false);
       return;
     }
     try {
       const profile = await api.getMe();
       setUser(profile);
+      localStorage.setItem('pastoral_auth_user', JSON.stringify(profile));
     } catch (err: any) {
-      // Only clear session if token is explicitly invalid or expired (401 or 403)
-      // Never log out on temporary 500 server errors or connection glitches
-      if (err?.status === 401 || err?.status === 403) {
+      // Clear session if token is invalid, expired, or user not found (401, 403, 404)
+      if (err?.status === 401 || err?.status === 403 || err?.status === 404) {
         localStorage.removeItem('pastoral_auth_token');
+        localStorage.removeItem('pastoral_auth_user');
         setToken(null);
         setUser(null);
       } else {
@@ -54,6 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     const res = await api.login(email, password);
     localStorage.setItem('pastoral_auth_token', res.token);
+    localStorage.setItem('pastoral_auth_user', JSON.stringify(res.user));
     setToken(res.token);
     setUser(res.user);
   };
@@ -61,6 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async (data: { credential?: string; email?: string; name?: string; picture?: string; google_id?: string }) => {
     const res = await api.loginWithGoogle(data);
     localStorage.setItem('pastoral_auth_token', res.token);
+    localStorage.setItem('pastoral_auth_user', JSON.stringify(res.user));
     setToken(res.token);
     setUser(res.user);
     return { needs_onboarding: res.needs_onboarding };
@@ -68,6 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('pastoral_auth_token');
+    localStorage.removeItem('pastoral_auth_user');
     setToken(null);
     setUser(null);
   };

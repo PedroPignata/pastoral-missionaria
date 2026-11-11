@@ -1286,10 +1286,21 @@ platformRouter.get('/members/birthdays', authenticateToken, (req: AuthenticatedR
   });
 });
 
+function findPastoralMemberFlexible(idOrKey: string, fallbackName?: string): any | null {
+  if (!idOrKey) return null;
+  let row = db.prepare('SELECT * FROM pastoral_members WHERE id = ? OR buyer_member_id = ?').get(idOrKey, idOrKey) as any;
+  if (!row && fallbackName) {
+    row = db
+      .prepare('SELECT * FROM pastoral_members WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) OR LOWER(TRIM(display_name)) = LOWER(TRIM(?))')
+      .get(fallbackName, fallbackName) as any;
+  }
+  return row || null;
+}
+
 // GET /api/platform/members/:id (Buscar Missionário Único com Habilitações Atualizadas)
 platformRouter.get('/members/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const member = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const member = findPastoralMemberFlexible(id);
   if (!member) {
     return res.status(404).json({ error: 'Missionário não encontrado.' });
   }
@@ -1364,10 +1375,11 @@ platformRouter.post('/members', authenticateToken, requireRole(['admin', 'coorde
 // PUT /api/platform/members/:id (Edição Completa de Cadastro de Missionário)
 platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const existing = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const existing = findPastoralMemberFlexible(id, req.body?.name || req.body?.display_name);
   if (!existing) {
     return res.status(404).json({ error: 'Missionário não encontrado.' });
   }
+  const targetId = existing.id;
 
   const {
     name, display_name, email, phone, pastoral_role, status, joined_at,
@@ -1419,7 +1431,7 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
     birthday_visibility || null,
     notes !== undefined ? (notes?.trim() || null) : existing.notes,
     now,
-    id
+    targetId
   );
 
   // Sincronizar nome no cadastro de compradores de camisetas se houver vínculo
@@ -1442,15 +1454,15 @@ platformRouter.put('/members/:id', authenticateToken, requireRole(['admin', 'coo
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_FULL', 'pastoral_member', ?, ?, ?)
-  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, targetId, JSON.stringify(req.body), now);
 
-  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(targetId) as any;
   const parsedQuals = JSON.parse(updatedMember.qualifications_json || '[]');
 
   return res.json({
     success: true,
     message: 'Cadastro do missionário atualizado com sucesso!',
-    memberId: id,
+    memberId: targetId,
     qualifications: parsedQuals,
     member: {
       ...updatedMember,
@@ -1515,10 +1527,11 @@ platformRouter.get('/governance', authenticateToken, (_req: AuthenticatedRequest
 
 platformRouter.patch('/governance/members/:id', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const existing = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const existing = findPastoralMemberFlexible(id, req.body?.name || req.body?.display_name);
   if (!existing) {
     return res.status(404).json({ error: 'Missionário não encontrado.' });
   }
+  const targetId = existing.id;
 
   const {
     name, display_name, email, phone, status, pastoral_role, joined_at,
@@ -1569,7 +1582,7 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
     birthday_visibility || null,
     notes?.trim() || null,
     now,
-    id
+    targetId
   );
 
   // Sincronizar nome no cadastro de compradores de camisetas se houver vínculo
@@ -1592,15 +1605,15 @@ platformRouter.patch('/governance/members/:id', authenticateToken, requireRole([
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
     VALUES (?, ?, ?, 'UPDATE_PASTORAL_MEMBER_GOVERNANCE', 'pastoral_member', ?, ?, ?)
-  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, id, JSON.stringify(req.body), now);
+  `).run(crypto.randomUUID(), req.user?.id, req.user?.name, targetId, JSON.stringify(req.body), now);
 
-  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(targetId) as any;
   const parsedQuals = JSON.parse(updatedMember.qualifications_json || '[]');
 
   return res.json({
     success: true,
     message: 'Cadastro institucional e habilitações do membro atualizados com sucesso.',
-    memberId: id,
+    memberId: targetId,
     qualifications: parsedQuals,
     member: {
       ...updatedMember,
@@ -1619,10 +1632,11 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
     return res.status(400).json({ error: 'O campo qualifications deve ser um array de strings.' });
   }
 
-  const existing = db.prepare('SELECT id, name, display_name, qualifications_json FROM pastoral_members WHERE id = ?').get(id) as any;
+  const existing = findPastoralMemberFlexible(id, req.body?.name || req.body?.display_name);
   if (!existing) {
     return res.status(404).json({ error: 'Missionário não encontrado.' });
   }
+  const targetId = existing.id;
 
   let previousQualifications: string[] = [];
   try {
@@ -1634,7 +1648,7 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
     UPDATE pastoral_members
     SET qualifications_json = ?, updated_at = ?
     WHERE id = ?
-  `).run(JSON.stringify(qualifications), now, id);
+  `).run(JSON.stringify(qualifications), now, targetId);
 
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
@@ -1643,7 +1657,7 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
     crypto.randomUUID(),
     req.user?.id,
     req.user?.name,
-    id,
+    targetId,
     JSON.stringify({
       member_name: existing.name,
       previous_qualifications: previousQualifications,
@@ -1652,12 +1666,12 @@ platformRouter.put('/members/:id/qualifications', authenticateToken, requireRole
     now
   );
 
-  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(id) as any;
+  const updatedMember = db.prepare('SELECT * FROM pastoral_members WHERE id = ?').get(targetId) as any;
   const parsedQualifications = JSON.parse(updatedMember.qualifications_json || '[]');
 
   return res.json({
     success: true,
-    memberId: id,
+    memberId: targetId,
     qualifications: parsedQualifications, // Top-level
     member: {
       ...updatedMember,

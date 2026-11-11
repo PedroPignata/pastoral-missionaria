@@ -1034,7 +1034,7 @@ export function runMigrations() {
       ];
 
       for (const p of prodPaidMembers) {
-        const member = db.prepare('SELECT id FROM members WHERE name = ?').get(p.name) as any;
+        const member = db.prepare('SELECT id FROM members WHERE name = ? OR display_name = ?').get(p.name, p.name) as any;
         if (member) {
           const order = db.prepare('SELECT id, total_amount_cents FROM orders WHERE member_id = ?').get(member.id) as any;
           if (order) {
@@ -1625,6 +1625,320 @@ export function runMigrations() {
 
     migrate013();
     console.log('✓ Migração 013_master_13_0_preserve_registered_birthdays aplicada com sucesso.');
+  }
+
+  // ----------------------------------------------------
+  // MIGRAÇÃO 014: Blindagem Definitiva dos Dados de 10/11/2026 (14 Pagamentos Quitados, 1 Estorno, Habilitações dos 39 Membros e IDs Determinísticos)
+  // ----------------------------------------------------
+  if (!applied.has('014_master_14_0_lock_nov10_payments_qualifications_and_deterministic_ids')) {
+    const migrate014 = db.transaction(() => {
+      const now = new Date().toISOString();
+
+      // 1. Canonicalizar IDs dos 19 compradores, pedidos, itens e vínculos em pastoral_members
+      const canonicalBuyers = [
+        { memberId: 'mem_22130dccbf2c', orderId: 'ord_6eeb7cf00170', itemId: 'itm_ff004f486fef', name: 'Maria Eduarda Fernandes', displayName: 'Duda Fernandes', phone: '(61) 99554-3396', searchNames: ['Maria Eduarda Fernandes', 'Duda Fernandes'] },
+        { memberId: 'mem_03d218edc79f', orderId: 'ord_1efa0ec4d2d3', itemId: 'itm_473256041c44', name: 'Lyvia Maria', displayName: 'Lyvia', phone: '(61) 99974-4803', searchNames: ['Lyvia Maria', 'Lyvia'] },
+        { memberId: 'mem_168e4d89c0d7', orderId: 'ord_b8ed287ddd36', itemId: 'itm_265c91c96e68', name: 'Állan Fross', displayName: 'Állan', phone: '(61) 98188-8901', searchNames: ['Állan Fross', 'Állan', 'Allan'] },
+        { memberId: 'mem_5b8f3d626749', orderId: 'ord_215af699304e', itemId: 'itm_71255950e197', name: 'Jamilly', displayName: 'Jamilly', phone: '(61) 99623-6153', searchNames: ['Jamilly'] },
+        { memberId: 'mem_aff2b7da59f2', orderId: 'ord_15234064b8d2', itemId: 'itm_ad208d2f5dcd', name: 'Vinícius', displayName: 'Vini', phone: '(61) 98427-3060', searchNames: ['Vinícius', 'Vini'] },
+        { memberId: 'mem_255524b003e3', orderId: 'ord_2a52e71a7bee', itemId: 'itm_767430ff3e81', name: 'Laysa', displayName: 'Laysa', phone: '(61) 99292-9981', searchNames: ['Laysa'] },
+        { memberId: 'mem_37c8ca212b5b', orderId: 'ord_60c347bdce55', itemId: 'itm_845a4c8c47fd', name: 'Victor', displayName: 'Victor', phone: '(61) 99223-6379', searchNames: ['Victor'] },
+        { memberId: 'mem_aeedddfde4d8', orderId: 'ord_a5c521d57e6e', itemId: 'itm_0d9726f0416b', name: 'Maria Luiza Neres', displayName: 'Malu Neres', phone: '(61) 99931-1322', searchNames: ['Maria Luiza Neres', 'Malu Neres'] },
+        { memberId: 'mem_cd7f61cc211e', orderId: 'ord_9aea2e3ec4b5', itemId: 'itm_a2450375d163', name: 'Júlia Viana', displayName: 'Júlia', phone: '(61) 99931-6382', searchNames: ['Júlia Viana', 'Júlia', 'Julia'] },
+        { memberId: 'mem_e8ca36ae2233', orderId: 'ord_b3cef19a189d', itemId: 'itm_7a4988071f7d', name: 'Letícia Ingrid', displayName: 'Letícia', phone: '(61) 99254-2925', searchNames: ['Letícia Ingrid', 'Letícia', 'Leticia'] },
+        { memberId: 'mem_c5ded13f55d7', orderId: 'ord_2ed9e808ad7b', itemId: 'itm_b87862dc8f4d', name: 'Saulo', displayName: 'Saulo', phone: '(61) 99657-8844', searchNames: ['Saulo'] },
+        { memberId: 'mem_e026bf750415', orderId: 'ord_f69cfe789f6b', itemId: 'itm_dd0c37600ccb', name: 'Manuella', displayName: 'Manuella', phone: '(61) 99197-2286', searchNames: ['Manuella'] },
+        { memberId: 'mem_83ce887a76ef', orderId: 'ord_c2cf281eac89', itemId: 'itm_6b03205d011b', name: 'Maria Júlia', displayName: 'Maria Júlia', phone: '(61) 99417-0991', searchNames: ['Maria Júlia', 'Maria Julia'] },
+        { memberId: 'mem_0a4d580ce11f', orderId: 'ord_7d3a718f849c', itemId: 'itm_241dd1c75d30', name: 'Mariane', displayName: 'Mariane', phone: '(61) 98483-4684', searchNames: ['Mariane'] },
+        { memberId: 'mem_d1b16e0ebcde', orderId: 'ord_7c5161308f11', itemId: 'itm_0182bd7540e5', name: 'Maria Luiza Lima', displayName: 'Maria Luiza', phone: '(61) 98208-9083', searchNames: ['Maria Luiza Lima', 'Maria Luiza'] },
+        { memberId: 'mem_718a8fc7413a', orderId: 'ord_0191867145fd', itemId: 'itm_7af851fa2220', name: 'Erick Kilbert', displayName: 'Erick', phone: '(61) 99523-5887', searchNames: ['Erick Kilbert', 'Erick'] },
+        { memberId: 'mem_3a5d8b2854f7', orderId: 'ord_e535981ee443', itemId: 'itm_513bd34a4eee', name: 'Alfredo', displayName: 'Alfredo', phone: '(61) 99847-4821', searchNames: ['Alfredo'] },
+        { memberId: 'mem_2a2e78c53bf9', orderId: 'ord_0c53215d8054', itemId: 'itm_75682979f52a', name: 'Tiago', displayName: 'Tiago', phone: '(61) 99852-6665', searchNames: ['Tiago'] },
+        { memberId: 'mem_723733f98bb6', orderId: 'ord_67ad498bf87c', itemId: 'itm_fd79459b6750', name: 'Maria Eduarda Soares', displayName: 'Duda Soares', phone: '(61) 98302-6142', searchNames: ['Maria Eduarda Soares', 'Duda Soares'] },
+      ];
+
+      for (const cb of canonicalBuyers) {
+        let memberRow = db.prepare('SELECT id, name FROM members WHERE id = ?').get(cb.memberId) as any;
+        if (!memberRow) {
+          for (const sn of cb.searchNames) {
+            memberRow = db.prepare('SELECT id, name FROM members WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) OR LOWER(TRIM(display_name)) = LOWER(TRIM(?))').get(sn, sn) as any;
+            if (memberRow) break;
+          }
+        }
+
+        if (memberRow) {
+          const oldMemId = memberRow.id;
+          if (oldMemId !== cb.memberId) {
+            db.prepare('UPDATE members SET id = ?, name = ?, display_name = ?, phone = ? WHERE id = ?').run(cb.memberId, cb.name, cb.displayName, cb.phone, oldMemId);
+            db.prepare('UPDATE orders SET member_id = ? WHERE member_id = ?').run(cb.memberId, oldMemId);
+            db.prepare('UPDATE payments SET member_id = ? WHERE member_id = ?').run(cb.memberId, oldMemId);
+            db.prepare('UPDATE pastoral_members SET id = ?, buyer_member_id = ? WHERE buyer_member_id = ? OR id = ?').run(`pmem_${cb.memberId}`, cb.memberId, oldMemId, `pmem_${oldMemId}`);
+          } else {
+            db.prepare('UPDATE members SET name = ?, display_name = ?, phone = ? WHERE id = ?').run(cb.name, cb.displayName, cb.phone, cb.memberId);
+          }
+
+          const orderRow = db.prepare("SELECT id FROM orders WHERE member_id = ? AND campaign_id = 'camp-2026-oficial'").get(cb.memberId) as any;
+          if (orderRow) {
+            const oldOrdId = orderRow.id;
+            if (oldOrdId !== cb.orderId) {
+              db.prepare('UPDATE orders SET id = ?, pastoral_member_id = ?, production_status = ? WHERE id = ?').run(cb.orderId, `pmem_${cb.memberId}`, 'em_producao', oldOrdId);
+              db.prepare('UPDATE order_items SET order_id = ? WHERE order_id = ?').run(cb.orderId, oldOrdId);
+              db.prepare('UPDATE payments SET order_id = ? WHERE order_id = ?').run(cb.orderId, oldOrdId);
+            } else {
+              db.prepare('UPDATE orders SET pastoral_member_id = ?, production_status = ? WHERE id = ?').run(`pmem_${cb.memberId}`, 'em_producao', cb.orderId);
+            }
+
+            const itemRow = db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(cb.orderId) as any;
+            if (itemRow && itemRow.id !== cb.itemId) {
+              db.prepare('UPDATE order_items SET id = ? WHERE id = ?').run(cb.itemId, itemRow.id);
+            }
+          }
+        }
+      }
+
+      // 2. Sincronizar e blindar todos os 15 lançamentos de pagamentos de 10/11/2026 (14 quitados = R$ 630,00 + 1 estornado de Letícia Ingrid)
+      const nov10Payments = [
+        { id: 'pay_d5d1bbfb8865', orderId: 'ord_e535981ee443', memberId: 'mem_3a5d8b2854f7', amount: 4500, date: '2026-11-06', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-06T14:50:00.000Z', updatedAt: '2026-11-06T14:50:00.000Z' },
+        { id: 'pay_0a9f138f5685', orderId: 'ord_b8ed287ddd36', memberId: 'mem_168e4d89c0d7', amount: 4500, date: '2026-11-05', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-05T14:50:00.000Z', updatedAt: '2026-11-05T14:50:00.000Z' },
+        { id: 'pay_27660b8d35b2', orderId: 'ord_6eeb7cf00170', memberId: 'mem_22130dccbf2c', amount: 4500, date: '2026-11-04', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-04T14:50:00.000Z', updatedAt: '2026-11-04T14:50:00.000Z' },
+        { id: 'pay_d4534c58efb9', orderId: 'ord_7c5161308f11', memberId: 'mem_d1b16e0ebcde', amount: 4500, date: '2026-11-06', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-06T14:50:00.000Z', updatedAt: '2026-11-06T14:50:00.000Z' },
+        { id: 'pay_55017014b2bb', orderId: 'ord_a5c521d57e6e', memberId: 'mem_aeedddfde4d8', amount: 4500, date: '2026-11-05', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-05T14:50:00.000Z', updatedAt: '2026-11-05T14:50:00.000Z' },
+        { id: 'pay_9a422406c647', orderId: 'ord_0c53215d8054', memberId: 'mem_2a2e78c53bf9', amount: 4500, date: '2026-11-04', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-04T14:50:00.000Z', updatedAt: '2026-11-04T14:50:00.000Z' },
+        { id: 'pay_9c67b3f0775b', orderId: 'ord_15234064b8d2', memberId: 'mem_aff2b7da59f2', amount: 4500, date: '2026-11-04', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-04T14:50:00.000Z', updatedAt: '2026-11-04T14:50:00.000Z' },
+        { id: 'pay_cf1e0bc9c6db', orderId: 'ord_0191867145fd', memberId: 'mem_718a8fc7413a', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:12:29.130Z', updatedAt: '2026-11-10T19:12:29.130Z' },
+        { id: 'pay_2ca00ef2e956', orderId: 'ord_9aea2e3ec4b5', memberId: 'mem_cd7f61cc211e', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:12:32.663Z', updatedAt: '2026-11-10T19:12:32.663Z' },
+        { id: 'pay_e7a8caf1273d', orderId: 'ord_b3cef19a189d', memberId: 'mem_e8ca36ae2233', amount: 4500, date: '2026-11-10', isReversed: 1, reason: 'errei', reversedAt: '2026-11-10T19:13:03.259Z', reversedBy: 'Pedro Rafael', createdAt: '2026-11-10T19:12:34.727Z', updatedAt: '2026-11-10T19:13:03.259Z' },
+        { id: 'pay_c68d7ee322f2', orderId: 'ord_1efa0ec4d2d3', memberId: 'mem_03d218edc79f', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:13:09.627Z', updatedAt: '2026-11-10T19:13:09.627Z' },
+        { id: 'pay_3ae52c3d611c', orderId: 'ord_2a52e71a7bee', memberId: 'mem_255524b003e3', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:13:14.235Z', updatedAt: '2026-11-10T19:13:14.235Z' },
+        { id: 'pay_b87e5e76fda6', orderId: 'ord_f69cfe789f6b', memberId: 'mem_e026bf750415', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:13:19.806Z', updatedAt: '2026-11-10T19:13:19.806Z' },
+        { id: 'pay_666cd1ff7e48', orderId: 'ord_c2cf281eac89', memberId: 'mem_83ce887a76ef', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:13:25.827Z', updatedAt: '2026-11-10T19:13:25.827Z' },
+        { id: 'pay_3d9c81a66421', orderId: 'ord_2ed9e808ad7b', memberId: 'mem_c5ded13f55d7', amount: 4500, date: '2026-11-10', isReversed: 0, reason: null, reversedAt: null, reversedBy: null, createdAt: '2026-11-10T19:13:31.701Z', updatedAt: '2026-11-10T19:13:31.701Z' },
+      ];
+
+      const upsertPayment = db.prepare(`
+        INSERT OR REPLACE INTO payments (
+          id, order_id, member_id, amount_cents, payment_date, payment_method,
+          recorded_by, notes, is_reversed, reversal_reason, reversed_at, reversed_by,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'pix', 'Pedro Rafael', '', ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const p of nov10Payments) {
+        const orderExists = db.prepare('SELECT id, member_id FROM orders WHERE id = ?').get(p.orderId) as any;
+        if (orderExists) {
+          upsertPayment.run(
+            p.id,
+            orderExists.id,
+            orderExists.member_id,
+            p.amount,
+            p.date,
+            p.isReversed,
+            p.reason,
+            p.reversedAt,
+            p.reversedBy,
+            p.createdAt,
+            p.updatedAt
+          );
+        }
+      }
+
+      // Recalcular saldos e status financeiro de todos os 19 pedidos da campanha 2026 a partir dos pagamentos válidos
+      const allCampaignOrders = db.prepare("SELECT id, total_amount_cents FROM orders WHERE campaign_id = 'camp-2026-oficial' AND status != 'cancelado'").all() as any[];
+      for (const ord of allCampaignOrders) {
+        const sumRow = db.prepare('SELECT COALESCE(SUM(amount_cents), 0) as paid FROM payments WHERE order_id = ? AND is_reversed = 0').get(ord.id) as { paid: number };
+        const paidCents = Math.min(ord.total_amount_cents, sumRow.paid || 0);
+        const balanceCents = Math.max(0, ord.total_amount_cents - paidCents);
+        const payStatus = balanceCents === 0 ? 'pago' : paidCents > 0 ? 'parcial' : 'pendente';
+
+        db.prepare(`
+          UPDATE orders
+          SET paid_amount_cents = ?,
+              balance_cents = ?,
+              payment_status = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(paidCents, balanceCents, payStatus, now, ord.id);
+      }
+
+      // 3. Blindar todas as habilitações pastorais e aniversários salvos em 10/11/2026 (16:14–16:15 BRT)
+      const all8 = ['Intercessão', 'Pregação', 'Formação', 'Testemunho', 'Música', 'Condução de oração', 'Animação', 'Apoio'];
+      const veteran7NoMusic = ['Intercessão', 'Pregação', 'Formação', 'Testemunho', 'Condução de oração', 'Animação', 'Apoio'];
+      const formation3 = ['Intercessão', 'Animação', 'Apoio'];
+      const formationDudaFernandes = ['Animação', 'Apoio', 'Intercessão'];
+      const formationMusic4 = ['Música', 'Animação', 'Apoio', 'Intercessão'];
+      const formationJoaoMiguel4 = ['Intercessão', 'Animação', 'Apoio', 'Testemunho'];
+
+      const nov10QualificationMap: Array<{ matchNames: string[]; quals: string[] }> = [
+        // Coordenadores
+        { matchNames: ['Fernanda Souto (Coordenadora)', 'Fernanda Souto', 'Fernanda'], quals: all8 },
+        { matchNames: ['Pedro Rafael Santos Pignata (Coordenador)', 'Pedro Rafael Santos Pignata', 'Pedro Rafael'], quals: veteran7NoMusic },
+
+        // Veteranos com 8 funções
+        { matchNames: ['Jonas Emanuell'], quals: all8 },
+        { matchNames: ['JoãoGabriel', 'João Gabriel'], quals: all8 },
+        { matchNames: ['Miriam'], quals: all8 },
+        { matchNames: ['Pedro Henrique'], quals: all8 },
+        { matchNames: ['Raquel'], quals: all8 },
+        { matchNames: ['Rayane'], quals: all8 },
+        { matchNames: ['Samuel Aranha'], quals: all8 },
+        { matchNames: ['Tiago'], quals: all8 },
+
+        // Veteranos com 7 funções (sem Música)
+        { matchNames: ['Angélica (Angel)', 'Angélica'], quals: veteran7NoMusic },
+        { matchNames: ['Daniel'], quals: veteran7NoMusic },
+        { matchNames: ['Gabriel (The Baios)', 'Gabriel'], quals: veteran7NoMusic },
+        { matchNames: ['Iris Maria'], quals: veteran7NoMusic },
+        { matchNames: ['José Vitor (Zé)', 'José Vitor'], quals: veteran7NoMusic },
+        { matchNames: ['Kayla Lino'], quals: veteran7NoMusic },
+        { matchNames: ['Rodrigo De Oliveira'], quals: veteran7NoMusic },
+
+        // Membros atualizados em 10/11/2026 (16:14–16:15 BRT)
+        { matchNames: ['Állan Fross', 'Állan'], quals: formationMusic4 },
+        { matchNames: ['Victor'], quals: formationMusic4 },
+        { matchNames: ['João Miguel'], quals: formationJoaoMiguel4 },
+        { matchNames: ['Maria Eduarda Fernandes', 'Duda Fernandes'], quals: formationDudaFernandes },
+        { matchNames: ['Alfredo'], quals: formation3 },
+        { matchNames: ['Erick Kilbert'], quals: formation3 },
+        { matchNames: ['Jamilly'], quals: formation3 },
+        { matchNames: ['Júlia Viana', 'Júlia'], quals: formation3 },
+        { matchNames: ['Laysa'], quals: formation3 },
+        { matchNames: ['Letícia Ingrid', 'Letícia'], quals: formation3 },
+        { matchNames: ['Ludmilla'], quals: formation3 },
+        { matchNames: ['Lyvia Maria', 'Lyvia'], quals: formation3 },
+        { matchNames: ['Manuella'], quals: formation3 },
+        { matchNames: ['Maria Eduarda Soares', 'Duda Soares'], quals: formation3 },
+        { matchNames: ['Maria Júlia'], quals: formation3 },
+        { matchNames: ['Maria Luiza Lima'], quals: formation3 },
+        { matchNames: ['Maria Luiza Neres', 'Malu Neres'], quals: formation3 },
+        { matchNames: ['Mariane'], quals: formation3 },
+        { matchNames: ['Saulo'], quals: formation3 },
+        { matchNames: ['Vinícius', 'Vini'], quals: formation3 },
+
+        // Membros ainda sem habilitações atribuídas
+        { matchNames: ['Victor Cardoso'], quals: [] },
+        { matchNames: ['Wellington Santos'], quals: [] },
+      ];
+
+      const pmRows = db.prepare('SELECT id, name, display_name FROM pastoral_members').all() as any[];
+      const updatePmQuals = db.prepare('UPDATE pastoral_members SET qualifications_json = ?, updated_at = ? WHERE id = ?');
+
+      for (const pm of pmRows) {
+        const rule = nov10QualificationMap.find((r) =>
+          r.matchNames.some(
+            (mn) =>
+              pm.name.trim().toLowerCase() === mn.trim().toLowerCase() ||
+              (pm.display_name || '').trim().toLowerCase() === mn.trim().toLowerCase()
+          )
+        );
+        if (rule) {
+          updatePmQuals.run(JSON.stringify(rule.quals), '2026-11-10T19:15:39.509Z', pm.id);
+        }
+      }
+
+      // Garantir aniversários de Pedro e João Miguel
+      db.prepare(`
+        UPDATE pastoral_members
+        SET birth_day = COALESCE(birth_day, 23),
+            birth_month = COALESCE(birth_month, 1),
+            birth_year = COALESCE(birth_year, 2006)
+        WHERE id = 'pmem_pedro'
+      `).run();
+
+      db.prepare(`
+        UPDATE pastoral_members
+        SET birth_day = COALESCE(birth_day, 4),
+            birth_month = COALESCE(birth_month, 12),
+            birth_year = COALESCE(birth_year, 2004)
+        WHERE name = 'João Miguel' OR id = 'pmem_joao_miguel'
+      `).run();
+
+      // 4. Registrar trilha de auditoria oficial de 10/11/2026
+      const insertAudit014 = db.prepare(`
+        INSERT OR IGNORE INTO audit_logs (id, user_id, user_name, action, entity_type, entity_id, details_json, created_at)
+        VALUES (?, 'user_pedro_coordinator', 'Pedro Rafael', ?, ?, ?, ?, ?)
+      `);
+
+      insertAudit014.run(
+        'aud_nov10_pay_erick',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_cf1e0bc9c6db',
+        JSON.stringify({ order_id: 'ord_0191867145fd', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:12:29.130Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_julia',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_2ca00ef2e956',
+        JSON.stringify({ order_id: 'ord_9aea2e3ec4b5', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:12:32.663Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_leticia',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_e7a8caf1273d',
+        JSON.stringify({ order_id: 'ord_b3cef19a189d', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:12:34.727Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_rev_leticia',
+        'REVERSE_PAYMENT',
+        'payment',
+        'pay_e7a8caf1273d',
+        JSON.stringify({ order_id: 'ord_b3cef19a189d', reversed_amount_cents: 4500, reason: 'errei', new_balance_cents: 4500, new_payment_status: 'pendente' }),
+        '2026-11-10T19:13:03.259Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_lyvia',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_c68d7ee322f2',
+        JSON.stringify({ order_id: 'ord_1efa0ec4d2d3', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:13:09.627Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_laysa',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_3ae52c3d611c',
+        JSON.stringify({ order_id: 'ord_2a52e71a7bee', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:13:14.235Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_manuella',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_b87e5e76fda6',
+        JSON.stringify({ order_id: 'ord_f69cfe789f6b', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:13:19.806Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_maria_julia',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_666cd1ff7e48',
+        JSON.stringify({ order_id: 'ord_c2cf281eac89', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:13:25.827Z'
+      );
+      insertAudit014.run(
+        'aud_nov10_pay_saulo',
+        'RECORD_PAYMENT',
+        'payment',
+        'pay_3d9c81a66421',
+        JSON.stringify({ order_id: 'ord_2ed9e808ad7b', amount_cents: 4500, payment_method: 'pix', new_balance_cents: 0, new_payment_status: 'pago' }),
+        '2026-11-10T19:13:31.701Z'
+      );
+
+      db.prepare(`
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES ('014_master_14_0_lock_nov10_payments_qualifications_and_deterministic_ids', 'Blindagem Definitiva dos Dados de 10/11/2026 (14 Pagamentos Quitados, 1 Estorno, Habilitações dos 39 Membros e IDs Determinísticos)', datetime('now'))
+      `).run();
+    });
+
+    migrate014();
+    console.log('✓ Migração 014_master_14_0_lock_nov10_payments_qualifications_and_deterministic_ids aplicada com sucesso.');
   }
 
   // Idempotent Seed of Official Institutional Data

@@ -198,7 +198,7 @@ async function runTests() {
     createdTestBuyerId = '';
     console.log('✓ [10/26] Atualização de dados na Governança reflete imediatamente nos pedidos vinculados.');
 
-    // 11. Os 19 pedidos iniciais preservam modelo, tamanho, valor (R$ 855,00) e status de pagamento (7 pagos = R$ 315,00)
+    // 11. Os 19 pedidos iniciais preservam modelo, tamanho, valor (R$ 855,00) e status de pagamento (14 pagos = R$ 630,00)
     const allOrdersRes = await fetch(`${baseUrl}/orders?campaign_id=camp-2026-oficial`, {
       headers: { Authorization: `Bearer ${coordToken}` },
     });
@@ -208,10 +208,10 @@ async function runTests() {
     const paidAmount = allOrders.reduce((s, o) => s + o.paid_amount_cents, 0);
     const paidOrders = allOrders.filter((o) => o.payment_status === 'pago');
     assert.strictEqual(totalAmount, 85500, 'Total deve ser 85500 centavos (R$ 855,00)');
-    assert.strictEqual(paidAmount, 31500, 'Total pago deve ser 31500 centavos (R$ 315,00)');
-    assert.strictEqual(paidOrders.length, 7, 'Devem existir 7 pedidos pagos');
+    assert.strictEqual(paidAmount, 63000, 'Total pago deve ser 63000 centavos (R$ 630,00)');
+    assert.strictEqual(paidOrders.length, 14, 'Devem existir 14 pedidos pagos');
     assert(allOrders.every((o) => o.member_phone && o.member_phone.length >= 8), 'Todos os 19 pedidos devem ter telefone vinculado');
-    console.log('✓ [11/26] Os 19 pedidos oficiais (R$ 855,00 total, 7 pagos = R$ 315,00, 12 Baby look, 7 Tradicional) estão 100% íntegros.');
+    console.log('✓ [11/26] Os 19 pedidos oficiais (R$ 855,00 total, 14 pagos = R$ 630,00, 12 Baby look, 7 Tradicional) estão 100% íntegros.');
 
     // 12. Criação de novo missionário na Governança disponibiliza imediatamente para pedido
     const newMemRes = await fetch(`${baseUrl}/platform/members`, {

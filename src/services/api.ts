@@ -4,7 +4,11 @@ const API_BASE = '/api';
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('pastoral_auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const baseHeaders: Record<string, string> = {
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
+  };
+  return token ? { ...baseHeaders, Authorization: `Bearer ${token}` } : baseHeaders;
 }
 
 export class ApiError extends Error {
@@ -907,6 +911,34 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify(data),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getSnapshotSync() {
+    const res = await fetch(`${API_BASE}/settings/snapshot/sync`, {
+      cache: 'no-store',
+      headers: getAuthHeader(),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async reconcileSnapshot(payload: any) {
+    const res = await fetch(`${API_BASE}/settings/snapshot/reconcile`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async restoreBackup(payload: any) {
+    const res = await fetch(`${API_BASE}/settings/backup/restore`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(payload),
     });
     return handleResponse<any>(res);
   },

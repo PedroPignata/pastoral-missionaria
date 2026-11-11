@@ -124,6 +124,49 @@ export const App: React.FC = () => {
   const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null);
   const [isOnboardingDismissed, setIsOnboardingDismissed] = useState(false);
 
+  // Synchronize Coordinator Browser Vault with Backend Snapshot Engine
+  const syncCoordinatorVault = useCallback(async () => {
+    if (!user || (user.role !== 'admin' && user.role !== 'coordenador')) return;
+    const VAULT_KEY = 'pastoral_coordinator_snapshot_v1';
+    try {
+      const serverSync = await api.getSnapshotSync();
+      if (!serverSync || !serverSync.snapshot) return;
+
+      const rawLocal = localStorage.getItem(VAULT_KEY);
+      if (rawLocal) {
+        try {
+          const localSnap = JSON.parse(rawLocal);
+          const localTime = localSnap?.lastMutationAt ? new Date(localSnap.lastMutationAt).getTime() : 0;
+          const serverTime = serverSync.lastMutationAt ? new Date(serverSync.lastMutationAt).getTime() : 0;
+          const localValidPays = Array.isArray(localSnap?.data?.payments)
+            ? localSnap.data.payments.filter((p: any) => !p.is_reversed).length
+            : 0;
+          const serverValidPays = Array.isArray(serverSync.snapshot?.data?.payments)
+            ? serverSync.snapshot.data.payments.filter((p: any) => !p.is_reversed).length
+            : 0;
+
+          if (
+            (localTime > serverTime + 2000 && localValidPays >= serverValidPays) ||
+            localValidPays > serverValidPays
+          ) {
+            const rec = await api.reconcileSnapshot(localSnap, 'auto_reconcile_coordinator_vault');
+            if (rec?.reconciled && rec?.snapshot) {
+              localStorage.setItem(VAULT_KEY, JSON.stringify(rec.snapshot));
+              return true; // Indicates server was updated from vault
+            }
+          }
+        } catch {
+          // Ignore malformed local snapshot
+        }
+      }
+
+      localStorage.setItem(VAULT_KEY, JSON.stringify(serverSync.snapshot));
+    } catch {
+      // Non-blocking background sync
+    }
+    return false;
+  }, [user]);
+
   // Load system data based on user authorization
   const loadAllData = useCallback(async () => {
     if (!user) return;
@@ -132,6 +175,8 @@ export const App: React.FC = () => {
 
     try {
       if (isCoord) {
+        await syncCoordinatorVault();
+
         const [
           ordersData,
           membersData,
@@ -158,6 +203,13 @@ export const App: React.FC = () => {
         setDashboardData(dashData);
         setSheetsConfig(sheetsStatus.config);
         setPendingSyncCount(sheetsStatus.pendingJobsCount);
+
+        // Refresh vault after any state mutation
+        api.getSnapshotSync().then((res) => {
+          if (res?.snapshot) {
+            localStorage.setItem('pastoral_coordinator_snapshot_v1', JSON.stringify(res.snapshot));
+          }
+        }).catch(() => {});
       } else {
         // Members only load their own orders, active campaigns and basic context
         const [campaignsData, activeCamp, myOrders] = await Promise.all([
@@ -174,12 +226,33 @@ export const App: React.FC = () => {
     } finally {
       setIsLoadingData(false);
     }
-  }, [user]);
+  }, [user, syncCoordinatorVault]);
 
   useEffect(() => {
     if (user) {
       loadAllData();
     }
+  }, [user, loadAllData]);
+
+  // Revalidate when window regains focus or when sub-views mutate data
+  useEffect(() => {
+    if (!user) return;
+    const handleDataMutated = () => {
+      loadAllData();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadAllData();
+      }
+    };
+    window.addEventListener('pastoral:data-mutated', handleDataMutated);
+    window.addEventListener('focus', handleDataMutated);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pastoral:data-mutated', handleDataMutated);
+      window.removeEventListener('focus', handleDataMutated);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user, loadAllData]);
 
   // Check if hash is #portal on load

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { db } from '../db/database.js';
 import { authenticateToken, requireRole, AuthenticatedRequest } from './auth.js';
+import { exportFullSnapshot, restoreSnapshotData } from '../db/snapshotSync.js';
 
 export const settingsRouter = Router();
 
@@ -91,33 +92,59 @@ settingsRouter.put('/pix', authenticateToken, requireRole(['admin', 'coordenador
 // GET /api/settings/backup/export
 settingsRouter.get('/backup/export', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
   const users = db.prepare('SELECT id, name, email, role, created_at FROM users').all();
-  const campaigns = db.prepare('SELECT * FROM campaigns').all();
-  const members = db.prepare('SELECT * FROM members').all();
-  const orders = db.prepare('SELECT * FROM orders').all();
-  const orderItems = db.prepare('SELECT * FROM order_items').all();
-  const payments = db.prepare('SELECT * FROM payments').all();
-  const integrationSettings = db.prepare('SELECT * FROM integration_settings').all();
-  const auditLogs = db.prepare('SELECT * FROM audit_logs').all();
+  const fullSnapshot = exportFullSnapshot();
 
   const backupData = {
-    version: '1.0.0',
-    exportedAt: new Date().toISOString(),
-    system: 'Pastoral Missionária - Gestão de Pedidos',
+    version: '14.0.0',
+    exportedAt: fullSnapshot.exported_at,
+    lastMutationAt: fullSnapshot.last_mutation_at,
+    system: 'Pastoral Missionária - Plataforma Institucional Completa',
     data: {
       users,
-      campaigns,
-      members,
-      orders,
-      orderItems,
-      payments,
-      integrationSettings,
-      auditLogs,
+      ...fullSnapshot.data,
     },
   };
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="backup_pastoral_missionaria_${new Date().toISOString().split('T')[0]}.json"`);
   return res.send(JSON.stringify(backupData, null, 2));
+});
+
+// POST /api/settings/backup/restore
+settingsRouter.post('/backup/restore', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = restoreSnapshotData(req.body, { mergeOnlyNewer: false });
+    return res.json({
+      ok: true,
+      message: 'Backup restaurado e reconciliado com sucesso!',
+      restoredCounts: result.restoredCounts,
+      lastMutationAt: result.lastMutationAt,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'Erro ao restaurar backup JSON.' });
+  }
+});
+
+// GET /api/settings/snapshot/sync
+settingsRouter.get('/snapshot/sync', authenticateToken, requireRole(['admin', 'coordenador']), (_req: AuthenticatedRequest, res: Response) => {
+  const snapshot = exportFullSnapshot();
+  return res.json(snapshot);
+});
+
+// POST /api/settings/snapshot/reconcile
+settingsRouter.post('/snapshot/reconcile', authenticateToken, requireRole(['admin', 'coordenador']), (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = restoreSnapshotData(req.body, { mergeOnlyNewer: true });
+    const snapshot = exportFullSnapshot();
+    return res.json({
+      ok: true,
+      restoredCounts: result.restoredCounts,
+      lastMutationAt: result.lastMutationAt,
+      snapshot,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'Erro ao reconciliar snapshot da coordenação.' });
+  }
 });
 
 // GET /api/settings/audit

@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { initDatabase } from './db/database.js';
 import { seedDatabase } from './db/seed.js';
 import { runMigrations } from './db/migrations.js';
+import { autoRestoreOnStartup, saveLocalSnapshot, getLastMutationTimestamp } from './db/snapshotSync.js';
 
 import { authRouter } from './routes/auth.js';
 import { membersRouter } from './routes/members.js';
@@ -32,14 +33,37 @@ const __dirname = path.dirname(__filename);
 initDatabase();
 seedDatabase();
 runMigrations();
+autoRestoreOnStartup();
 
 export const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Disable ETag on API responses so Windows/Edge/Mobile browsers never serve stale 304 cached states
+app.set('etag', false);
 
 // Middlewares
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Anti-cache & Auto-Snapshot Middleware for /api/*
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !req.path.startsWith('/auth/login')) {
+    res.on('finish', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        setImmediate(() => {
+          saveLocalSnapshot();
+        });
+      }
+    });
+  }
+  next();
+});
 
 // Static uploads directory for media persistence
 const uploadsDir = path.join(__dirname, '../data/uploads');
@@ -68,6 +92,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'online',
     time: new Date().toISOString(),
+    last_mutation_at: getLastMutationTimestamp(),
     pastoral: 'Pastoral Missionária - Ágape Apostolado de Jovens',
     parish: 'Paróquia São Vicente de Paulo - Planaltina/DF',
   });
@@ -75,11 +100,24 @@ app.get('/api/health', (_req, res) => {
 
 // Serve frontend in production
 const distPath = path.resolve(__dirname, '../dist');
-app.use(express.static(distPath));
+app.use(
+  express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  })
+);
 app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
     return next();
   }
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(distPath, 'index.html'), (err) => {
     if (err) {
       res.status(200).send('API da Pastoral Missionária online. Execute "npm run dev" para o frontend Vite.');
@@ -95,5 +133,13 @@ if (process.env.TEST_MODE !== 'true') {
     console.log(`✝️  Ágape Apostolado de Jovens - Paróquia São Vicente de Paulo`);
     console.log(`📡 Servidor Backend executando em: http://localhost:${PORT}`);
     console.log(`======================================================\n`);
+
+    // Keep-Alive Heartbeat for Render Free Tier (every 8 minutes)
+    if (process.env.NODE_ENV === 'production') {
+      const targetUrl = process.env.RENDER_EXTERNAL_URL || 'https://pastoral-missionaria.onrender.com';
+      setInterval(() => {
+        fetch(`${targetUrl}/api/health`).catch(() => {});
+      }, 8 * 60 * 1000);
+    }
   });
 }
